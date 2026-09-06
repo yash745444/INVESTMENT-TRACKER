@@ -51,6 +51,7 @@ Personal wealth & construction project finance tracker:
 - Sidebar shows "Signed in as Yash"
 - Testing: iteration_2 — 30/30 backend (20 old + 10 new), all UI flows green
 - Fix: frontend/.env pointed at stale preview URL causing CORS failures — corrected and restarted
+- Fix (2026-09-06, iteration 3): login "Network Error" — axios baseURL changed to same-origin relative `/api` so API calls work from any preview/deploy hostname (ingress routes /api → backend). Verified: 0 cross-origin requests, login + PIN flow green.
 
 ## Backlog
 - P1: Edit project (name/partners %) from UI; settle-up shortcut button per pair

@@ -1,7 +1,10 @@
 import axios from "axios";
 
+// Same-origin relative base: works from ANY preview/deployment URL the app is
+// served on (ingress routes /api/* to the backend). Avoids CORS/cookie issues
+// when the external hostname rotates.
 export const api = axios.create({
-  baseURL: `${process.env.REACT_APP_BACKEND_URL}/api`,
+  baseURL: "/api",
   withCredentials: true,
 });
 

@@ -1,0 +1,25 @@
+{
+  "summary": "Bug-fix verification for login 'Network Error'. Frontend axios baseURL is now same-origin relative ('/api'). Login with yash.sojitra34@gmail.com / Yash@2026 succeeds on the preview URL, lands on Dashboard with net worth $452,278 AUD visible. Wrong password shows 'Invalid email or password' via [data-testid=login-error] (no Network Error). Captured 42 API requests during the session — 0 cross-origin, 0 CORS/Network console errors. Regression pages (Investments, Properties, Projects) load; MAISON 7 visible in Project Positions. Shares PIN flow via [data-testid=pin-input] + keyboard.type('2468') unlocks shares (dashboard renders shares content).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Direct URL navigation to /partner-ledger", "issue": "Navigating directly to /partner-ledger redirected to / (dashboard). Sidebar link 'Partner Ledger' is present; likely route guard/redirect on unknown deep-link. Low priority — Partner Ledger was verified working in iterations 1/2 via sidebar.", "affected_selectors": ["/partner-ledger route"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Relative baseURL '/api' with withCredentials in /app/frontend/src/lib/api.js is the correct pattern for K8s ingress preview URLs — no more baked-in host at build time.",
+    "Consider adding a small integration test in Login.jsx to assert axios.defaults.baseURL === '/api' to prevent regression."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a", "frontend": "100%"},
+  "test_credentials": "yash.sojitra34@gmail.com / Yash@2026; Shares PIN 2468 (from review request)",
+  "seed_data_creation": "None (did not modify user data)",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Bug fix verified. Login works, all API calls same-origin, no CORS errors. Dashboard net worth $452,278 AUD, investments $29,132, property equity $423,145, MAISON 7 project present. Shares unlock via pin-input testid + keyboard.type works.",
+  "rca of the issue": "Original bug: axios baseURL was set from REACT_APP_BACKEND_URL at build time, making all API calls absolute cross-origin to a specific preview host. When the platform rotated the preview URL, the browser served the app from a new hostname but axios kept calling the old host — this produced 'Network Error' due to CORS/cookies mismatch. Fix: use relative '/api' baseURL so requests are always same-origin and Kubernetes ingress routes /api/* to backend:8001. Verified: 0 cross-origin requests observed; login and all regressions pass."
+}
