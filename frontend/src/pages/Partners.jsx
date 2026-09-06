@@ -8,7 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { toast } from "sonner";
-import { Plus, Trash2, FileText, ArrowRight } from "lucide-react";
+import { Plus, Trash2, FileText } from "lucide-react";
+import { DatePicker } from "../components/DatePicker";
 
 export default function Partners() {
   const [txns, setTxns] = useState(null);
@@ -54,13 +55,9 @@ export default function Partners() {
   const downloadReport = () => {
     if (!report) return;
     let txt = `PARTNER LEDGER REPORT — ${new Date().toLocaleDateString("en-AU")}\n`;
-    txt += `Partners: Yash, Sanjay, Pranay, Max\n\n== WHO OWES WHOM ==\n`;
-    report.balances.pairs.forEach((p) => {
-      txt += p.owes ? `${p.owes}: $${p.amount.toFixed(2)}\n` : `${p.a} <-> ${p.b}: settled\n`;
-    });
-    txt += `\n== NET POSITIONS ==\n`;
+    txt += `Company partners: Yash, Sanjay, Pranay, Max\n\n== COMPANY SETTLEMENT ==\n`;
     Object.entries(report.balances.totals).forEach(([k, v]) => {
-      txt += `${k}: ${v >= 0 ? "owed TO them" : "they owe"} $${Math.abs(v).toFixed(2)}\n`;
+      txt += Math.abs(v) < 0.005 ? `${k}: settled\n` : v > 0 ? `${k}: Take from Company $${v.toFixed(2)}\n` : `${k}: Pay to Company $${(-v).toFixed(2)}\n`;
     });
     txt += `\n== ALL TRANSACTIONS ==\n`;
     report.transactions.forEach((t) => {
@@ -107,7 +104,7 @@ export default function Partners() {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5"><Label>Date</Label>
-                    <Input data-testid="txn-date-input" type="date" required value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></div>
+                    <DatePicker testid="txn-date-input" value={form.date} onChange={(v) => setForm({ ...form, date: v })} /></div>
                   <div className="space-y-1.5"><Label>Amount (AUD)</Label>
                     <Input data-testid="txn-amount-input" type="number" step="0.01" required value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></div>
                 </div>
@@ -133,10 +130,10 @@ export default function Partners() {
             <CardContent className="p-4">
               <p className="label-overline">{p}{p === "Yash" ? " (You)" : ""}</p>
               <p className={`font-mono font-semibold text-lg mt-1.5 ${(balances?.totals[p] || 0) < 0 ? "text-negative" : "text-positive"}`}>
-                {(balances?.totals[p] || 0) >= 0 ? `+${fmt(balances?.totals[p] || 0)}` : fmt(balances?.totals[p] || 0)}
+                {fmt(Math.abs(balances?.totals[p] || 0))}
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {(balances?.totals[p] || 0) >= 0 ? "owed to them" : "they owe"}
+                {Math.abs(balances?.totals[p] || 0) < 0.005 ? "Settled" : (balances?.totals[p] || 0) >= 0 ? "Take from Company" : "Pay to Company"}
               </p>
             </CardContent>
           </Card>
@@ -144,25 +141,29 @@ export default function Partners() {
       </div>
 
       <Card data-testid="pairwise-card">
-        <CardHeader><CardTitle className="font-heading text-lg">Who Owes Whom</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="font-heading text-lg">Company Settlement</CardTitle></CardHeader>
         <CardContent>
           {!balances ? <p className="text-sm text-muted-foreground">Loading…</p> : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {balances.pairs.map((p) => (
-                <div key={`${p.a}-${p.b}`} className="flex items-center justify-between rounded-lg border border-border p-3.5"
-                  data-testid={`pair-${p.a.toLowerCase()}-${p.b.toLowerCase()}`}>
-                  <div className="flex items-center gap-2 text-sm font-medium">
-                    {p.a} <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" /> {p.b}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {PARTNERS.map((p) => {
+                const v = balances.totals[p] || 0;
+                return (
+                  <div key={p} className="flex items-center justify-between rounded-lg border border-border p-3.5 gap-2"
+                    data-testid={`company-position-${p.toLowerCase()}`}>
+                    <span className="text-sm font-medium shrink-0">{p}{p === "Yash" ? " (You)" : ""}</span>
+                    {Math.abs(v) < 0.005 ? (
+                      <span className="font-mono text-xs text-positive">settled</span>
+                    ) : v > 0 ? (
+                      <span className="font-mono text-xs text-right"><span className="text-positive block">Take from Company</span><span className="text-gold font-semibold">{fmt2(v)}</span></span>
+                    ) : (
+                      <span className="font-mono text-xs text-right"><span className="text-negative block">Pay to Company</span><span className="text-gold font-semibold">{fmt2(-v)}</span></span>
+                    )}
                   </div>
-                  {p.owes ? (
-                    <span className="font-mono text-sm"><span className="text-negative">{p.owes}</span> <span className="text-gold font-semibold">{fmt2(p.amount)}</span></span>
-                  ) : (
-                    <span className="font-mono text-xs text-positive">settled</span>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
+          <p className="text-xs text-muted-foreground mt-3">The 4 partners operate as one company pool — settle with the company, not with each other.</p>
         </CardContent>
       </Card>
 
@@ -209,21 +210,11 @@ export default function Partners() {
           {report && (
             <div className="space-y-5">
               <div>
-                <p className="label-overline mb-2">Who owes whom</p>
-                <div className="space-y-1.5">
-                  {report.balances.pairs.map((p) => (
-                    <p key={`${p.a}-${p.b}`} className="text-sm font-mono" data-testid={`report-pair-${p.a.toLowerCase()}-${p.b.toLowerCase()}`}>
-                      {p.owes ? `${p.owes} ${fmt2(p.amount)}` : `${p.a} ↔ ${p.b}: settled`}
-                    </p>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <p className="label-overline mb-2">Net positions</p>
+                <p className="label-overline mb-2">Company settlement</p>
                 <div className="space-y-1.5">
                   {Object.entries(report.balances.totals).map(([k, v]) => (
-                    <p key={k} className="text-sm font-mono">
-                      {k}: {v >= 0 ? `is owed ${fmt2(v)}` : `owes ${fmt2(-v)}`}
+                    <p key={k} className="text-sm font-mono" data-testid={`report-position-${k.toLowerCase()}`}>
+                      {k}: {Math.abs(v) < 0.005 ? "settled" : v > 0 ? `Take from Company ${fmt2(v)}` : `Pay to Company ${fmt2(-v)}`}
                     </p>
                   ))}
                 </div>

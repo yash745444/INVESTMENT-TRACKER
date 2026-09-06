@@ -1,20 +1,23 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, apiError } from "../lib/api";
-import { fmt, PARTNERS } from "../lib/format";
+import { fmt } from "../lib/format";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Card, CardContent } from "../components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { toast } from "sonner";
-import { Plus, HardHat } from "lucide-react";
+import { Plus, HardHat, X } from "lucide-react";
 
 export default function Projects() {
   const [projects, setProjects] = useState(null);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ name: "", address: "", description: "" });
-  const [pcts, setPcts] = useState({ Yash: 25, Sanjay: 25, Pranay: 25, Max: 25 });
+  const [partnerRows, setPartnerRows] = useState([
+    { name: "Yash", percentage: 25 }, { name: "Sanjay", percentage: 25 },
+    { name: "Pranay", percentage: 25 }, { name: "Max", percentage: 25 },
+  ]);
   const navigate = useNavigate();
 
   const load = () => api.get("/projects").then((r) => setProjects(r.data)).catch(() => setProjects([]));
@@ -25,7 +28,7 @@ export default function Projects() {
     try {
       await api.post("/projects", {
         ...form,
-        partners: PARTNERS.map((name) => ({ name, percentage: Number(pcts[name]) || 0 })),
+        partners: partnerRows.filter((r) => r.name.trim()).map((r) => ({ name: r.name.trim(), percentage: Number(r.percentage) || 0 })),
       });
       toast.success("Project created");
       setOpen(false);
@@ -64,18 +67,31 @@ export default function Projects() {
               </div>
               <div className="space-y-2">
                 <Label>Ownership %</Label>
-                <div className="grid grid-cols-2 gap-3">
-                  {PARTNERS.map((p) => (
-                    <div key={p} className="flex items-center gap-2">
-                      <span className="text-sm w-16">{p}</span>
-                      <Input data-testid={`project-pct-${p.toLowerCase()}`} type="number" step="0.01" value={pcts[p]}
-                        onChange={(e) => setPcts({ ...pcts, [p]: e.target.value })} />
+                <div className="space-y-2">
+                  {partnerRows.map((row, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <Input data-testid={`project-partner-name-${i}`} value={row.name} placeholder="Partner name"
+                        onChange={(e) => setPartnerRows(partnerRows.map((r, j) => j === i ? { ...r, name: e.target.value } : r))} />
+                      <Input data-testid={`project-partner-pct-${i}`} type="number" step="0.01" className="w-24 shrink-0" value={row.percentage}
+                        onChange={(e) => setPartnerRows(partnerRows.map((r, j) => j === i ? { ...r, percentage: e.target.value } : r))} />
+                      {partnerRows.length > 1 && (
+                        <Button type="button" variant="ghost" size="icon" data-testid={`project-partner-remove-${i}`}
+                          onClick={() => setPartnerRows(partnerRows.filter((_, j) => j !== i))}>
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                     </div>
                   ))}
                 </div>
-                <p className="text-xs text-muted-foreground font-mono">
-                  Total: {PARTNERS.reduce((s, p) => s + (Number(pcts[p]) || 0), 0)}%
-                </p>
+                <div className="flex items-center justify-between">
+                  <Button type="button" variant="outline" size="sm" data-testid="project-add-partner"
+                    onClick={() => setPartnerRows([...partnerRows, { name: "", percentage: 0 }])}>
+                    <Plus className="h-3.5 w-3.5 mr-1" /> Add partner
+                  </Button>
+                  <p className="text-xs text-muted-foreground font-mono" data-testid="project-pct-total">
+                    Total: {partnerRows.reduce((s, r) => s + (Number(r.percentage) || 0), 0)}%
+                  </p>
+                </div>
               </div>
               <Button data-testid="project-create-submit" type="submit" className="w-full">Create Project</Button>
             </form>

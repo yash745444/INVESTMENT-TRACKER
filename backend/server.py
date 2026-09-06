@@ -15,6 +15,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
+import math
+import yfinance as yf
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -235,9 +237,14 @@ class InvestmentIn(BaseModel):
     type: str  # shares | term_insurance | other
     name: str
     currency: str = "AUD"
-    amount: float
+    amount: float = 0
     date: Optional[str] = ""
     notes: Optional[str] = ""
+    symbol: Optional[str] = ""
+    quantity: Optional[float] = 0
+    leverage: Optional[float] = 1
+    current_price: Optional[float] = 0
+    price_currency: Optional[str] = ""
 
 
 class PropertyIn(BaseModel):
@@ -249,6 +256,7 @@ class PropertyIn(BaseModel):
     monthly_rent: float = 0
     debt: float = 0
     currency: str = "AUD"
+    partners: List[dict] = []  # [{name, percentage}]
     notes: Optional[str] = ""
 
 
@@ -597,8 +605,18 @@ async def ledger_report(user=Depends(get_current_user)):
 # ---------------- investments ----------------
 
 @app.get("/api/investments")
-async def list_investments(user=Depends(get_current_user)):
-    return [doc_out(d) async for d in db.investments.find().sort("created_at", -1)]
+async def list_investments(request: Request, user=Depends(get_current_user)):
+    visible = shares_visible(request)
+    out = []
+    async for d in db.investments.find().sort("created_at", -1):
+        d = doc_out(d)
+        if d.get("type") == "shares" and not visible:
+            out.append({"id": d["id"], "type": "shares", "name": "Hidden holding", "symbol": "",
+                        "quantity": 0, "leverage": 1, "current_price": 0, "price_currency": "",
+                        "currency": "AUD", "amount": 0, "date": "", "notes": "", "redacted": True})
+        else:
+            out.append(d)
+    return out
 
 
 @app.post("/api/investments")
@@ -646,18 +664,135 @@ async def delete_property(pid: str, user=Depends(get_current_user)):
     return {"ok": True}
 
 
+# ---------------- market data (yfinance) ----------------
+
+def market_search_sync(query: str):
+    results = []
+    for q in yf.Search(query, max_results=8, news_count=0).quotes:
+        if q.get("quoteType") not in (None, "EQUITY"):
+            continue
+        sym = q.get("symbol")
+        if not sym:
+            continue
+        results.append({"symbol": sym.upper(),
+                        "name": q.get("longname") or q.get("shortname") or sym,
+                        "exchange": q.get("exchange") or ""})
+    return results[:8]
+
+
+def market_quote_sync(ticker: str):
+    t = yf.Ticker(ticker)
+    hist = t.history(period="5d", interval="1d", auto_adjust=False)
+    if hist.empty:
+        raise ValueError("no data")
+    row = hist.dropna(subset=["Close"]).iloc[-1]
+    price = float(row["Close"])
+    if not math.isfinite(price):
+        raise ValueError("invalid price")
+    currency, name = "", ""
+    try:
+        currency = t.fast_info.get("currency") or ""
+    except Exception:
+        pass
+    try:
+        name = t.info.get("shortName") or ""
+    except Exception:
+        pass
+    return {"symbol": ticker, "price": price, "currency": currency, "name": name,
+            "fetched_at": now_utc().isoformat()}
+
+
+@app.get("/api/market/search")
+async def market_search(q: str, user=Depends(get_current_user)):
+    key = q.strip().lower()
+    cached = await db.market_search.find_one({"_id": key})
+    if cached and (now_utc() - datetime.fromisoformat(cached["fetched_at"])).total_seconds() < 300:
+        return {"results": cached["results"]}
+    try:
+        results = await asyncio.to_thread(market_search_sync, q)
+    except Exception:
+        raise HTTPException(502, "Market search unavailable")
+    await db.market_search.replace_one({"_id": key},
+        {"_id": key, "results": results, "fetched_at": now_utc().isoformat()}, upsert=True)
+    return {"results": results}
+
+
+@app.get("/api/market/quote/{ticker}")
+async def market_quote(ticker: str, user=Depends(get_current_user)):
+    ticker = ticker.strip().upper()
+    if not ticker or len(ticker) > 32 or any(c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-^=" for c in ticker):
+        raise HTTPException(400, "Invalid ticker")
+    cached = await db.market_quotes.find_one({"_id": ticker})
+    if cached and (now_utc() - datetime.fromisoformat(cached["fetched_at"])).total_seconds() < 300:
+        return doc_out(cached)
+    try:
+        result = await asyncio.to_thread(market_quote_sync, ticker)
+    except ValueError:
+        raise HTTPException(404, "Quote not found")
+    except Exception:
+        if cached:
+            return doc_out(cached)
+        raise HTTPException(502, "Quote provider unavailable")
+    await db.market_quotes.replace_one({"_id": ticker}, {"_id": ticker, **result}, upsert=True)
+    return result
+
+
+# ---------------- shares privacy ----------------
+
+class PinIn(BaseModel):
+    pin: str
+
+
+@app.post("/api/shares/unlock")
+async def unlock_shares(data: PinIn, response: Response, request: Request, user=Depends(get_current_user)):
+    if data.pin != os.environ.get("SHARES_PIN", "2468"):
+        raise HTTPException(403, "Incorrect passcode")
+    token = jwt.encode({"sub": user["id"], "type": "shares_unlock",
+                        "exp": now_utc() + timedelta(hours=12)},
+                       get_jwt_secret(), algorithm=JWT_ALGORITHM)
+    response.set_cookie("shares_unlock", token, httponly=True, secure=True,
+                        samesite="none", max_age=43200, path="/")
+    return {"ok": True}
+
+
+def shares_visible(request: Request) -> bool:
+    token = request.cookies.get("shares_unlock")
+    if not token:
+        return False
+    try:
+        return jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM]).get("type") == "shares_unlock"
+    except jwt.InvalidTokenError:
+        return False
+
+
 # ---------------- dashboard ----------------
 
+def investment_worth_aud(inv, rates):
+    if inv.get("type") == "shares" and inv.get("symbol") and inv.get("quantity") and inv.get("current_price"):
+        return to_aud(inv["quantity"] * inv["current_price"],
+                      inv.get("price_currency") or inv.get("currency", "AUD"), rates)
+    return to_aud(inv.get("amount", 0), inv.get("currency", "AUD"), rates)
+
+
 @app.get("/api/dashboard")
-async def dashboard(user=Depends(get_current_user)):
+async def dashboard(request: Request, user=Depends(get_current_user)):
     rates_data = await rate_service.get()
     rates = rates_data["rates"]
 
     investments = [doc_out(d) async for d in db.investments.find()]
-    inv_total = sum(to_aud(i["amount"], i.get("currency", "AUD"), rates) for i in investments)
+    worths = [investment_worth_aud(i, rates) for i in investments]
+    inv_total = sum(worths)
     inv_by_type = {}
-    for i in investments:
-        inv_by_type[i["type"]] = inv_by_type.get(i["type"], 0) + to_aud(i["amount"], i.get("currency", "AUD"), rates)
+    for i, w in zip(investments, worths):
+        inv_by_type[i["type"]] = inv_by_type.get(i["type"], 0) + w
+    shares_count = sum(1 for i in investments if i.get("type") == "shares")
+    visible = shares_visible(request)
+    if visible:
+        shares_total = inv_by_type.get("shares", 0)
+    else:
+        shares_total = 0
+        inv_total -= sum(w for i, w in zip(investments, worths) if i.get("type") == "shares")
+        inv_by_type.pop("shares", None)
 
     properties = [doc_out(d) async for d in db.properties.find()]
     prop_value = sum(to_aud(p["current_value"], p.get("currency", "AUD"), rates) for p in properties)
@@ -666,7 +801,7 @@ async def dashboard(user=Depends(get_current_user)):
 
     projects = []
     my_contributions = 0.0
-    my_loan_share = 0.0
+    loans_outstanding = 0.0
     async for p in db.projects.find():
         p = doc_out(p)
         pid = p["id"]
@@ -678,24 +813,22 @@ async def dashboard(user=Depends(get_current_user)):
         async for l in db.loans.find({"project_id": pid}):
             outstanding += loan_metrics(l)["outstanding"]
         my_contributions += contrib
-        my_loan_share += outstanding * my_pct / 100
+        loans_outstanding += outstanding
         projects.append({"id": pid, "name": p["name"], "my_percentage": my_pct,
-                         "my_contributions": contrib, "loan_outstanding": outstanding,
-                         "my_loan_share": outstanding * my_pct / 100,
-                         "equity": contrib - outstanding * my_pct / 100})
+                         "my_contributions": contrib, "loan_outstanding": outstanding})
 
     bal = await ledger_balances(user)
     ledger_net = bal["totals"].get("Yash", 0.0)
 
-    net_worth = inv_total + (prop_value - prop_debt) + (my_contributions - my_loan_share) + ledger_net
+    net_worth = inv_total + (prop_value - prop_debt) + my_contributions + ledger_net
     return {
         "net_worth": round(net_worth, 2),
-        "investments": {"total": round(inv_total, 2), "by_type": inv_by_type},
+        "investments": {"total": round(inv_total, 2), "by_type": inv_by_type,
+                        "shares_total": round(shares_total, 2), "shares_count": shares_count},
         "properties": {"value": round(prop_value, 2), "debt": round(prop_debt, 2),
                        "equity": round(prop_value - prop_debt, 2), "monthly_rent": round(prop_rent, 2)},
         "projects": {"list": projects, "my_contributions": round(my_contributions, 2),
-                     "my_loan_share": round(my_loan_share, 2),
-                     "equity": round(my_contributions - my_loan_share, 2)},
+                     "loans_outstanding": round(loans_outstanding, 2)},
         "ledger_net": round(ledger_net, 2),
         "rates": rates_data,
     }

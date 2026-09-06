@@ -1,42 +1,65 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { fmt } from "../lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
-import { TrendingUp, Building2, HardHat, Users, Wallet } from "lucide-react";
+import { TrendingUp, Building2, HardHat, Users, Wallet, Lock } from "lucide-react";
+import { PinUnlock } from "../components/PinUnlock";
+import { isSharesUnlocked, setSharesUnlocked } from "../lib/sharesLock";
 
 const COLORS = ["#D97706", "#059669", "#2563EB", "#8B5CF6"];
 
 export default function Dashboard() {
   const [data, setData] = useState(null);
+  const [unlocked, setUnlocked] = useState(isSharesUnlocked());
+  const [pinOpen, setPinOpen] = useState(false);
+  const navigate = useNavigate();
 
-  useEffect(() => {
-    api.get("/dashboard").then((r) => setData(r.data)).catch(() => {});
-  }, []);
+  const load = () => api.get("/dashboard").then((r) => {
+    setData(r.data);
+    if ((r.data.investments.shares_total || 0) > 0) { setSharesUnlocked(); setUnlocked(true); }
+  }).catch(() => {});
+  useEffect(() => { load(); }, []);
 
   if (!data) return <div className="text-muted-foreground" data-testid="dashboard-loading">Loading…</div>;
 
+  const sharesCount = data.investments.shares_count || 0;
+  const invDisplay = data.investments.total;
+  const netDisplay = data.net_worth;
+
   const pie = [
-    { name: "Investments", value: Math.max(0, data.investments.total) },
+    { name: "Investments", value: Math.max(0, invDisplay) },
     { name: "Property Equity", value: Math.max(0, data.properties.equity) },
     { name: "Project Equity", value: Math.max(0, data.projects.equity) },
     { name: "Partner Receivables", value: Math.max(0, data.ledger_net) },
   ].filter((d) => d.value > 0);
 
   const cards = [
-    { label: "Investments", value: data.investments.total, icon: TrendingUp, testid: "stat-investments" },
-    { label: "Property Equity", value: data.properties.equity, icon: Building2, testid: "stat-property-equity" },
-    { label: "Project Equity", value: data.projects.equity, icon: HardHat, testid: "stat-project-equity" },
-    { label: "Partner Ledger Net", value: data.ledger_net, icon: Users, testid: "stat-ledger-net" },
+    { label: "Investments", value: invDisplay, icon: TrendingUp, testid: "stat-investments", path: "/investments", locked: !unlocked && sharesCount > 0 },
+    { label: "Property Equity", value: data.properties.equity, icon: Building2, testid: "stat-property-equity", path: "/properties" },
+    { label: "Project Invested", value: data.projects.my_contributions, icon: HardHat, testid: "stat-project-invested", path: "/projects" },
+    { label: "Partner Ledger Net", value: data.ledger_net, icon: Users, testid: "stat-ledger-net", path: "/partners" },
   ];
 
   return (
     <div className="space-y-6" data-testid="dashboard-page">
       <div>
         <p className="label-overline">Net Worth · AUD</p>
-        <h1 className="font-heading font-extrabold text-3xl sm:text-4xl tracking-tight mt-1">
-          <span className="font-mono" data-testid="net-worth-value">{fmt(data.net_worth)}</span>
-        </h1>
+        <div className="flex items-center gap-3 mt-1">
+          <h1 className="font-heading font-extrabold text-3xl sm:text-4xl tracking-tight">
+            <span className="font-mono" data-testid="net-worth-value">{fmt(netDisplay)}</span>
+          </h1>
+          {!unlocked && sharesCount > 0 && (
+            <button data-testid="unlock-shares-button" onClick={() => setPinOpen(true)}
+              className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground border border-border rounded-full px-3 py-1.5 hover:border-gold transition-colors">
+              <Lock className="h-3 w-3" /> Reveal shares
+            </button>
+          )}
+        </div>
+        {!unlocked && sharesCount > 0 && (
+          <p className="text-xs text-muted-foreground mt-1" data-testid="shares-hidden-note">Excludes shares — enter passcode to reveal</p>
+        )}
         {data.rates?.fetched_at && (
           <p className="text-xs text-muted-foreground mt-1 font-mono" data-testid="fx-info">
             FX: 1 AUD = {data.rates.rates.USD?.toFixed(4)} USD · {data.rates.rates.INR?.toFixed(2)} INR
@@ -47,7 +70,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {cards.map((c) => (
-          <Card key={c.label} className="card-hover" data-testid={c.testid}>
+          <Card key={c.label} className="card-hover cursor-pointer" data-testid={c.testid} onClick={() => navigate(c.path)}>
             <CardContent className="p-5">
               <div className="flex items-center justify-between">
                 <p className="label-overline">{c.label}</p>
@@ -56,6 +79,7 @@ export default function Dashboard() {
               <p className={`font-mono font-semibold text-xl sm:text-2xl mt-2 ${c.value < 0 ? "text-negative" : ""}`}>
                 {fmt(c.value)}
               </p>
+              {c.locked && <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1"><Lock className="h-3 w-3" /> excl. hidden shares</p>}
             </CardContent>
           </Card>
         ))}
@@ -93,9 +117,8 @@ export default function Dashboard() {
                     <tr className="text-left label-overline border-b border-border">
                       <th className="pb-2 pr-4">Project</th>
                       <th className="pb-2 pr-4">My %</th>
-                      <th className="pb-2 pr-4">Contributed</th>
-                      <th className="pb-2 pr-4">Loan Share</th>
-                      <th className="pb-2">Equity</th>
+                      <th className="pb-2 pr-4">Invested</th>
+                      <th className="pb-2">Loans Outstanding</th>
                     </tr>
                   </thead>
                   <tbody className="font-mono">
@@ -103,9 +126,8 @@ export default function Dashboard() {
                       <tr key={p.id} className="border-b border-border/50" data-testid={`dashboard-project-row-${p.id}`}>
                         <td className="py-2.5 pr-4 font-sans font-medium">{p.name}</td>
                         <td className="py-2.5 pr-4">{p.my_percentage}%</td>
-                        <td className="py-2.5 pr-4">{fmt(p.my_contributions)}</td>
-                        <td className="py-2.5 pr-4 text-negative">{fmt(p.my_loan_share)}</td>
-                        <td className={`py-2.5 ${p.equity < 0 ? "text-negative" : "text-positive"}`}>{fmt(p.equity)}</td>
+                        <td className="py-2.5 pr-4 text-positive">{fmt(p.my_contributions)}</td>
+                        <td className="py-2.5 text-muted-foreground">{fmt(p.loan_outstanding)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -130,7 +152,7 @@ export default function Dashboard() {
           <CardContent className="p-5">
             <p className="label-overline">Investment Mix</p>
             <div className="mt-2 space-y-1 font-mono text-sm">
-              <p>Shares: {fmt(data.investments.by_type.shares || 0)}</p>
+              <p data-testid="investment-mix-shares">Shares: {unlocked ? fmt(data.investments.by_type.shares || 0) : "••••"}</p>
               <p>Term Insurance: {fmt(data.investments.by_type.term_insurance || 0)}</p>
               <p>Other: {fmt(data.investments.by_type.other || 0)}</p>
             </div>
@@ -138,14 +160,16 @@ export default function Dashboard() {
         </Card>
         <Card data-testid="project-debt-card">
           <CardContent className="p-5">
-            <p className="label-overline">Project Debt (My Share)</p>
-            <p className="font-mono font-semibold text-xl mt-2 text-negative">{fmt(data.projects.my_loan_share)}</p>
+            <p className="label-overline">Project Loans Outstanding</p>
+            <p className="font-mono font-semibold text-xl mt-2 text-negative">{fmt(data.projects.loans_outstanding)}</p>
             <p className="text-xs text-muted-foreground mt-1 font-mono">
-              Contributed {fmt(data.projects.my_contributions)}
+              Info only — not deducted from net worth
             </p>
           </CardContent>
         </Card>
       </div>
+
+      <PinUnlock open={pinOpen} onOpenChange={setPinOpen} onUnlock={() => { setUnlocked(true); load(); }} />
     </div>
   );
 }

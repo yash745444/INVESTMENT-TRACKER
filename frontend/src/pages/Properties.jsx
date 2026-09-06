@@ -8,9 +8,10 @@ import { Card, CardContent } from "../components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { toast } from "sonner";
-import { Plus, Trash2, Pencil, Building2 } from "lucide-react";
+import { Plus, Trash2, Pencil, Building2, X } from "lucide-react";
+import { DatePicker } from "../components/DatePicker";
 
-const EMPTY = { name: "", address: "", purchase_date: "", purchase_price: "", current_value: "", monthly_rent: "", debt: "", currency: "AUD", notes: "" };
+const EMPTY = { name: "", address: "", purchase_date: "", purchase_price: "", current_value: "", monthly_rent: "", debt: "", currency: "AUD", partners: [], notes: "" };
 
 export default function Properties() {
   const [items, setItems] = useState(null);
@@ -26,6 +27,7 @@ export default function Properties() {
     try {
       const payload = {
         ...form,
+        partners: (form.partners || []).filter((p) => p.name?.trim()).map((p) => ({ name: p.name.trim(), percentage: Number(p.percentage) || 0 })),
         purchase_price: Number(form.purchase_price) || 0,
         current_value: Number(form.current_value) || 0,
         monthly_rent: Number(form.monthly_rent) || 0,
@@ -59,7 +61,8 @@ export default function Properties() {
               {field("name", "Property name", "text", "prop-name-input")}
               {field("address", "Address", "text", "prop-address-input")}
               <div className="grid grid-cols-2 gap-3">
-                {field("purchase_date", "Purchase date", "date", "prop-purchase-date-input")}
+                <div className="space-y-1.5"><Label>Purchase date</Label>
+                  <DatePicker testid="prop-purchase-date-input" value={form.purchase_date} onChange={(v) => setForm({ ...form, purchase_date: v })} /></div>
                 <div className="space-y-1.5"><Label>Currency</Label>
                   <Select value={form.currency} onValueChange={(v) => setForm({ ...form, currency: v })}>
                     <SelectTrigger data-testid="prop-currency-select"><SelectValue /></SelectTrigger>
@@ -73,6 +76,24 @@ export default function Properties() {
               <div className="grid grid-cols-2 gap-3">
                 {field("monthly_rent", "Current monthly rent", "number", "prop-rent-input")}
                 {field("debt", "Mortgage / debt", "number", "prop-debt-input")}
+              </div>
+              <div className="space-y-2">
+                <Label>Partnership (ownership %)</Label>
+                {(form.partners || []).map((pt, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <Input data-testid={`prop-partner-name-${i}`} value={pt.name} placeholder="Partner name"
+                      onChange={(e) => setForm({ ...form, partners: form.partners.map((r, j) => j === i ? { ...r, name: e.target.value } : r) })} />
+                    <Input data-testid={`prop-partner-pct-${i}`} type="number" step="0.01" className="w-24 shrink-0" value={pt.percentage}
+                      onChange={(e) => setForm({ ...form, partners: form.partners.map((r, j) => j === i ? { ...r, percentage: e.target.value } : r) })} />
+                    <Button type="button" variant="ghost" size="icon" data-testid={`prop-partner-remove-${i}`}
+                      onClick={() => setForm({ ...form, partners: form.partners.filter((_, j) => j !== i) })}>
+                      <X className="h-3.5 w-3.5" /></Button>
+                  </div>
+                ))}
+                <Button type="button" variant="outline" size="sm" data-testid="prop-add-partner"
+                  onClick={() => setForm({ ...form, partners: [...(form.partners || []), { name: "", percentage: "" }] })}>
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Add partner
+                </Button>
               </div>
               {field("notes", "Notes", "text", "prop-notes-input")}
               <Button data-testid="prop-submit" type="submit" className="w-full">Save</Button>
@@ -121,6 +142,16 @@ export default function Properties() {
                     {fmt(p.current_value - p.debt, p.currency)}
                   </span>
                 </div>
+                {p.partners?.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 pt-1" data-testid={`prop-partners-${p.id}`}>
+                    {p.partners.map((pt) => (
+                      <span key={pt.name} className="text-xs font-mono px-2 py-0.5 rounded-full bg-secondary"
+                        data-testid={`prop-partner-${p.id}-${pt.name.toLowerCase()}`}>
+                        {pt.name} {pt.percentage}%
+                      </span>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}

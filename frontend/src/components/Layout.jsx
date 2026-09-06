@@ -82,8 +82,8 @@ export default function Layout() {
             ))}
           </div>
           <div className="mt-8 px-3">
-            <p className="label-overline">Signed in</p>
-            <p className="text-sm font-medium mt-1 truncate" data-testid="user-email">{user?.email}</p>
+            <p className="label-overline">Signed in as</p>
+            <p className="text-sm font-medium mt-1 truncate" data-testid="user-name">{user?.name || "Yash"}</p>
           </div>
         </aside>
         <main className="flex-1 p-4 sm:p-6 lg:p-8 min-w-0">

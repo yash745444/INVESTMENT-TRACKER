@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { toast } from "sonner";
 import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronUp } from "lucide-react";
+import { DatePicker } from "../components/DatePicker";
 
 const COST_CATEGORIES = ["Site Acquisition", "Architectural & Permits", "Foundation & Structure", "MEP & Finishes", "Marketing & Legal", "Other"];
 
@@ -37,6 +38,7 @@ export default function ProjectDetail() {
 
   if (!project) return <div className="text-muted-foreground">Loading…</div>;
 
+  const partnerNames = project.partners?.length ? project.partners.map((p) => p.name) : PARTNERS;
   const totalContrib = contributions.reduce((s, c) => s + c.amount, 0);
   const totalCosts = costs.reduce((s, c) => s + c.amount, 0);
   const totalDrawn = loans.reduce((s, l) => s + l.metrics.drawn, 0);
@@ -75,7 +77,7 @@ export default function ProjectDetail() {
       <Tabs defaultValue="overview">
         <TabsList data-testid="project-tabs">
           <TabsTrigger value="overview" data-testid="tab-overview">Overview</TabsTrigger>
-          <TabsTrigger value="partners" data-testid="tab-partners">4-Partner View</TabsTrigger>
+          <TabsTrigger value="partners" data-testid="tab-partners">Partners</TabsTrigger>
           <TabsTrigger value="contributions" data-testid="tab-contributions">Contributions</TabsTrigger>
           <TabsTrigger value="costs" data-testid="tab-costs">Cost Tracker</TabsTrigger>
           <TabsTrigger value="loans" data-testid="tab-loans">Loans</TabsTrigger>
@@ -120,23 +122,18 @@ export default function ProjectDetail() {
 
         <TabsContent value="partners" className="mt-5">
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-            {PARTNERS.map((name) => {
-              const pt = project.partners?.find((x) => x.name === name);
-              const share = contributions.filter((c) => c.partner === name).reduce((s, c) => s + c.amount, 0);
-              const pct = pt?.percentage || 0;
-              const loanShare = totalOutstanding * pct / 100;
+            {(project.partners || []).map((pt) => {
+              const invested = contributions.filter((c) => c.partner === pt.name).reduce((s, c) => s + c.amount, 0);
               return (
-                <Card key={name} className="card-hover" data-testid={`partner-card-${name.toLowerCase()}`}>
+                <Card key={pt.name} className="card-hover" data-testid={`partner-card-${pt.name.toLowerCase()}`}>
                   <CardContent className="p-5 space-y-3">
                     <div className="flex items-center justify-between">
-                      <h3 className="font-heading font-semibold">{name}{name === "Yash" && <span className="text-xs text-gold ml-1.5">(You)</span>}</h3>
-                      <span className="font-mono text-sm text-muted-foreground">{pct}%</span>
+                      <h3 className="font-heading font-semibold">{pt.name}{pt.name === "Yash" && <span className="text-xs text-gold ml-1.5">(You)</span>}</h3>
+                      <span className="font-mono text-sm text-muted-foreground">{pt.percentage}%</span>
                     </div>
                     <div className="space-y-1.5 text-sm">
-                      <div className="flex justify-between"><span className="text-muted-foreground">Contributed</span><span className="font-mono">{fmt(share)}</span></div>
-                      <div className="flex justify-between"><span className="text-muted-foreground">Loan share</span><span className="font-mono text-negative">{fmt(loanShare)}</span></div>
-                      <div className="flex justify-between border-t border-border pt-1.5"><span className="text-muted-foreground">Equity</span>
-                        <span className={`font-mono font-semibold ${share - loanShare < 0 ? "text-negative" : "text-positive"}`}>{fmt(share - loanShare)}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Invested</span>
+                        <span className="font-mono font-semibold text-positive">{fmt(invested)}</span></div>
                     </div>
                   </CardContent>
                 </Card>
@@ -146,10 +143,10 @@ export default function ProjectDetail() {
         </TabsContent>
 
         <TabsContent value="contributions" className="mt-5">
-          <ContributionsTab projectId={id} contributions={contributions} reload={load} />
+          <ContributionsTab projectId={id} contributions={contributions} reload={load} partnerNames={partnerNames} />
         </TabsContent>
         <TabsContent value="costs" className="mt-5">
-          <CostsTab projectId={id} costs={costs} reload={load} />
+          <CostsTab projectId={id} costs={costs} reload={load} partnerNames={partnerNames} />
         </TabsContent>
         <TabsContent value="loans" className="mt-5">
           <LoansTab projectId={id} loans={loans} reload={load} />
@@ -172,7 +169,7 @@ function DataTable({ head, rows, testid }) {
   );
 }
 
-function ContributionsTab({ projectId, contributions, reload }) {
+function ContributionsTab({ projectId, contributions, reload, partnerNames }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ date: today(), partner: "Yash", amount: "", description: "" });
 
@@ -198,11 +195,11 @@ function ContributionsTab({ projectId, contributions, reload }) {
             <form onSubmit={submit} className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5"><Label>Date</Label>
-                  <Input data-testid="contribution-date-input" type="date" required value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></div>
+                  <DatePicker testid="contribution-date-input" value={form.date} onChange={(v) => setForm({ ...form, date: v })} /></div>
                 <div className="space-y-1.5"><Label>Partner</Label>
                   <Select value={form.partner} onValueChange={(v) => setForm({ ...form, partner: v })}>
                     <SelectTrigger data-testid="contribution-partner-select"><SelectValue /></SelectTrigger>
-                    <SelectContent>{PARTNERS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+                    <SelectContent>{partnerNames.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
                   </Select></div>
               </div>
               <div className="space-y-1.5"><Label>Amount (AUD)</Label>
@@ -234,7 +231,7 @@ function ContributionsTab({ projectId, contributions, reload }) {
   );
 }
 
-function CostsTab({ projectId, costs, reload }) {
+function CostsTab({ projectId, costs, reload, partnerNames }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ date: today(), category: "Site Acquisition", amount: "", description: "", paid_by: "" });
 
@@ -274,7 +271,7 @@ function CostsTab({ projectId, costs, reload }) {
               <form onSubmit={submit} className="space-y-4">
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5"><Label>Date</Label>
-                    <Input data-testid="cost-date-input" type="date" required value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></div>
+                    <DatePicker testid="cost-date-input" value={form.date} onChange={(v) => setForm({ ...form, date: v })} /></div>
                   <div className="space-y-1.5"><Label>Category</Label>
                     <Select value={form.category} onValueChange={(v) => setForm({ ...form, category: v })}>
                       <SelectTrigger data-testid="cost-category-select"><SelectValue /></SelectTrigger>
@@ -287,7 +284,7 @@ function CostsTab({ projectId, costs, reload }) {
                   <div className="space-y-1.5"><Label>Paid by</Label>
                     <Select value={form.paid_by} onValueChange={(v) => setForm({ ...form, paid_by: v })}>
                       <SelectTrigger data-testid="cost-paidby-select"><SelectValue placeholder="—" /></SelectTrigger>
-                      <SelectContent>{PARTNERS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+                      <SelectContent>{partnerNames.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
                     </Select></div>
                 </div>
                 <div className="space-y-1.5"><Label>Description</Label>
@@ -369,13 +366,13 @@ function LoansTab({ projectId, loans, reload }) {
                 <div className="space-y-1.5"><Label>Term (months)</Label>
                   <Input data-testid="loan-term-input" type="number" required value={form.term_months} onChange={(e) => setForm({ ...form, term_months: e.target.value })} /></div>
                 <div className="space-y-1.5"><Label>Start date</Label>
-                  <Input data-testid="loan-start-input" type="date" required value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} /></div>
+                  <DatePicker testid="loan-start-input" value={form.start_date} onChange={(v) => setForm({ ...form, start_date: v })} /></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5"><Label>Initial drawdown (optional)</Label>
                   <Input data-testid="loan-first-amount-input" type="number" step="0.01" value={form.first_amount} onChange={(e) => setForm({ ...form, first_amount: e.target.value })} /></div>
                 <div className="space-y-1.5"><Label>Drawdown date</Label>
-                  <Input data-testid="loan-first-date-input" type="date" value={form.first_date} onChange={(e) => setForm({ ...form, first_date: e.target.value })} /></div>
+                  <DatePicker testid="loan-first-date-input" value={form.first_date} onChange={(v) => setForm({ ...form, first_date: v })} /></div>
               </div>
               <Button data-testid="loan-submit" type="submit" className="w-full">Save Loan</Button>
             </form>
@@ -433,7 +430,7 @@ function LoanCard({ loan, reload }) {
                 <form onSubmit={addDrawdown} className="space-y-4">
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5"><Label>Date</Label>
-                      <Input data-testid="drawdown-date-input" type="date" required value={dd.date} onChange={(e) => setDd({ ...dd, date: e.target.value })} /></div>
+                      <DatePicker testid="drawdown-date-input" value={dd.date} onChange={(v) => setDd({ ...dd, date: v })} /></div>
                     <div className="space-y-1.5"><Label>Amount</Label>
                       <Input data-testid="drawdown-amount-input" type="number" step="0.01" required value={dd.amount} onChange={(e) => setDd({ ...dd, amount: e.target.value })} /></div>
                   </div>

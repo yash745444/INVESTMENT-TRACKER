@@ -41,12 +41,23 @@ Personal wealth & construction project finance tracker:
 - Properties: rent, purchase date, price, current value, debt, equity
 - Testing: 20/20 backend pytest green, all critical UI flows verified (iteration_1)
 
+## Implemented (2026-09-06, iteration 2)
+- Properties: partnership section per property (add/remove any partners with name + %, chips on card); all date inputs replaced with calendar-popover DatePicker
+- Shares: market search (yfinance, US/ASX/NSE), auto price fetch + Refresh Prices, leverage 1×/2×/5× (worth = qty×price, exposure = worth×leverage), hover card shows worth (1px rounded)
+- Shares privacy: hidden by default, 4-digit PIN (2468, env SHARES_PIN) unlocks for 12h via signed httpOnly cookie — server-side redaction in /api/investments + /api/dashboard (net worth excludes shares until unlocked)
+- Projects: dynamic partners (add beyond core 4, % must sum 100); partners tab shows project partners; equity math removed — only "Invested" shown; loans shown as info only (not deducted)
+- Dashboard: 4 stat cards clickable → section nav; custom gold cursor with trailing ring; PIN unlock dialog
+- Partner Ledger: "Company Settlement" wording — Take from Company / Pay to Company per partner, report + .txt download use same wording
+- Sidebar shows "Signed in as Yash"
+- Testing: iteration_2 — 30/30 backend (20 old + 10 new), all UI flows green
+- Fix: frontend/.env pointed at stale preview URL causing CORS failures — corrected and restarted
+
 ## Backlog
 - P1: Edit project (name/partners %) from UI; settle-up shortcut button per pair
 - P1: Editable/manual FX rate override
 - P2: Cash-flow history chart on dashboard; PDF report export
 - P2: Import from the original Excel (32-34 CADMAN) format
-- P3: Per-project currency support; recurring transaction templates
+- P3: Per-project currency support; server.py router split if more features added
 
 ## Next Tasks
 1. Gather user feedback on MVP
