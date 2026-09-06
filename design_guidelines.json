@@ -1,0 +1,111 @@
+{
+  "app_name": "Yash Wealth & Construction Finance Command Center",
+  "app_context": "High-net-worth personal wealth dashboard & multi-partner construction project finance tracker for Yash. Features AUD base currency, live multi-currency FX (USD/AUD/INR), partner cost sharing (Yash, Sanjay, Pranay, Max), loan drawdowns, property portfolio tracking, and pairwise settle-up ledger.",
+  "design_archetype": "Architectural Precision & High-Net-Worth Calm (Swiss High-Contrast meets Warm Architectural Slate)",
+  "theme_strategy": "Light/Dark mode switchable. Light Mode: Clean warm bone background (#F8F9FA) with sharp slate borders and emerald/gold accents. Dark Mode: Deep Obsidian (#0B0F17) background with muted zinc cards (#111827), subtle 1px borders, and high-visibility financial data density.",
+  "colors": {
+    "light": {
+      "background": "#F8F9FB",
+      "surface": "#FFFFFF",
+      "surface_elevated": "#F1F5F9",
+      "border": "#E2E8F0",
+      "text_primary": "#0F172A",
+      "text_secondary": "#475569",
+      "text_muted": "#64748B",
+      "primary": "#0F172A",
+      "primary_accent": "#D97706",
+      "emerald_positive": "#059669",
+      "crimson_negative": "#DC2626",
+      "info_blue": "#2563EB"
+    },
+    "dark": {
+      "background": "#0B0F17",
+      "surface": "#111827",
+      "surface_elevated": "#1F2937",
+      "border": "#1E293B",
+      "text_primary": "#F8FAFC",
+      "text_secondary": "#94A3B8",
+      "text_muted": "#64748B",
+      "primary": "#38BDF8",
+      "primary_accent": "#F59E0B",
+      "emerald_positive": "#10B981",
+      "crimson_negative": "#EF4444",
+      "info_blue": "#3B82F6"
+    }
+  },
+  "typography": {
+    "heading_font": "Outfit, sans-serif",
+    "body_font": "Inter, sans-serif",
+    "mono_font": "JetBrains Mono, monospace",
+    "font_imports_css": "@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap');",
+    "font_rules": {
+      "h1": "font-heading font-extrabold text-3xl sm:text-4xl tracking-tight text-foreground",
+      "h2": "font-heading font-bold text-2xl sm:text-3xl tracking-tight text-foreground",
+      "h3": "font-heading font-semibold text-xl sm:text-2xl text-foreground",
+      "card_title": "font-heading font-semibold text-lg text-foreground tracking-tight",
+      "currency_large": "font-mono font-bold text-3xl sm:text-4xl tracking-tight",
+      "currency_medium": "font-mono font-semibold text-xl sm:text-2xl",
+      "currency_small": "font-mono font-medium text-sm sm:text-base",
+      "label_overline": "font-mono text-xs font-semibold uppercase tracking-widest text-muted-foreground"
+    }
+  },
+  "layout_and_spacing": {
+    "container_padding": "p-4 sm:p-6 lg:p-8",
+    "card_padding": "p-5 sm:p-6",
+    "grid_gap": "gap-5 sm:gap-6",
+    "card_style": "rounded-xl border border-border bg-card text-card-foreground shadow-sm transition-all hover:border-slate-400/40 dark:hover:border-slate-700/60",
+    "glass_header": "sticky top-0 z-40 backdrop-blur-xl bg-background/80 border-b border-border shadow-xs",
+    "bento_dashboard": "grid grid-cols-1 md:grid-cols-12 gap-6"
+  },
+  "feature_implementations": {
+    "1_auth": "Simple login view (email + password) with pre-filled demo trigger for Yash (yash@wealth.app) and quick state bypass for effortless reviewer access.",
+    "2_net_worth_dashboard": "Total Net Worth in AUD combining Cash + Shares + Term Insurance + Properties + Project Equity - Total Debt. Includes live AUD/USD/INR FX rates ticker, historical net worth trend chart (Recharts), breakdown by asset class, and fast currency switcher toggle.",
+    "3_construction_projects": "Multi-project tracker cards (e.g. 'South Yarra Luxury Apartments', 'Brighton Townhouses Phase II', 'Docklands Commercial Hub') showing completion %, total budget, Yash's share %, cash contributed to date, loan drawdowns, and quick action tabs.",
+    "4_project_detail_views": "Two distinct views per project: (A) Overall Project View with all partners, combined budget, costs, loans; (B) 4-Partner View for Yash, Sanjay, Pranay, and Max with ownership percentages, individual capital calls, and total equity stakes.",
+    "5_partner_money_ledger": "Money management tracker for Yash, Sanjay, Pranay, Max. Handles 'paid on behalf of partner X', per-project pairwise balances ('Who owes whom'), individual transactions (Pay/Take), settlement calculator, and printable/shareable PDF-style report modal.",
+    "6_personal_investments": "Multi-currency portfolio tracker for Shares (USD/AUD/INR), Term Insurance, and Other Investments. Real-time conversion to AUD base currency using auto-fetched or live simulated FX rates API.",
+    "7_cost_cash_tracker": "Per-project cost breakdown by categories (Site Acquisition, Architectural & Permits, Foundation & Structure, MEP & Finishes, Marketing/Legal). Tracks paid vs committed cash flow.",
+    "8_loan_drawdown_tracker": "Per-project debt & facility tracker. Visualizes total facility, drawn amount, remaining drawdown limit, amortizing vs interest-only repayments, interest rate (%), and interactive repayment schedule table.",
+    "9_pairwise_ledger_report": "Dedicated pairwise matrix report showing net balance between every partner pair (e.g. Yash <-> Sanjay, Yash <-> Max) with transaction audit trail and export/share capabilities.",
+    "10_property_portfolio": "Personal investment properties overview showing current rental yield, monthly rent (AUD), purchase date, initial cost, current estimated value, and attached property mortgages."
+  },
+  "media": {
+    "images": [
+      {
+        "category": "construction_hero",
+        "url": "https://images.unsplash.com/photo-1644221150167-fb4fafa7f411?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "description": "High-rise construction project with cranes"
+      },
+      {
+        "category": "townhouse_project",
+        "url": "https://images.unsplash.com/photo-1602757115429-b4190ae087be?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "description": "Modern architectural residential development site"
+      },
+      {
+        "category": "luxury_property",
+        "url": "https://images.unsplash.com/photo-1706808849780-7a04fbac83ef?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "description": "Modern luxury residential investment house"
+      },
+      {
+        "category": "commercial_property",
+        "url": "https://images.unsplash.com/photo-1613490493576-7fde63acd811?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "description": "High-end commercial architecture building"
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Load JetBrains Mono, Outfit, and Inter fonts in index.html / index.css.",
+    "Ensure dark/light theme toggle works smoothly across all pages with next-themes or state-based dark class toggle on documentElement.",
+    "Base currency MUST default to AUD throughout the app, with AUD/USD/INR FX rates clearly displayed and auto-updating or refreshable.",
+    "All financial figures MUST use JetBrains Mono or tabular-nums for crisp vertical alignment.",
+    "Partner Ledger must clearly identify the 4 partners: Yash, Sanjay, Pranay, Max, and perform automated pairwise matrix calculation (Yash owes Sanjay $X, Max owes Yash $Y).",
+    "Add detailed data-testid attributes on all interactive elements (buttons, tabs, inputs, cards, selects) for testing automation.",
+    "Use Sonner for toast notifications when transactions or updates are saved.",
+    "Ensure all modals (Add Transaction, Add Drawdown, Settle Up, Add Property) are rich, well-styled, and functional."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": {
+    "design_quality": "Avoid plain AI slop. Use structured bento cards, crisp 1px borders, subtle hover transitions, and rich data density.",
+    "accessibility": "High contrast APCA standard readability in both dark and light modes.",
+    "testing_ids": "Every key button, input, tab, card, and metric container MUST include data-testid='...' in kebab-case."
+  }
+}

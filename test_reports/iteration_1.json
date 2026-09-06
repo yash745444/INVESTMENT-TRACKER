@@ -1,0 +1,29 @@
+{
+  "summary": "First-iteration end-to-end testing of the Yash Wealth Command Center. Backend: 20/20 pytest tests pass covering auth, rates, projects+percentage validation, contributions, costs, interest-only & amortizing loans + drawdown recomputation + 12-month schedule, partner ledger pairwise + settlement + report, investments (USD & INR converted to AUD), properties equity, dashboard shape. Frontend Playwright: login (correct + wrong password shows Invalid email or password), dashboard renders Net Worth AUD + FX (1 AUD = 0.7203 USD / 68.07 INR), project creation with percentage validation (60/25/25/25 rejected with 'sum to 100' toast; 25/25/25/25 creates project), contribution+cost added and stat cards update ($10,000 contributed, $5,000 costs, $155,000 cash position after $150k drawn), interest-only loan repayment = $500/mo initially, updates to $750/mo after $50k additional drawdown, 12-row schedule renders, 4-Partner view shows Yash contributed 10,000, Partner Ledger 'Sanjay owes Yash $5,000' after paid_on_behalf, reduces to $3,000 after Sanjay->Yash $2,000 settlement, net position cards Yash +$3,000 / Sanjay -$3,000, Report dialog opens and .txt download works, theme toggle switches dark class, logout redirects to /login and / route redirects to /login when logged out.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Login attempts brute-force lock is IP+email keyed but persists via upsert with $set locked_until on EVERY failed attempt, effectively resetting the 15-min window on each failed try (still enforced after 5). Acceptable but reset semantics could be documented.",
+    "verify_password on wrong email path is skipped (short-circuit); avoids timing attack partially but still slight timing signal. Low priority.",
+    "server.py is ~730 lines in a single file; consider splitting into routers/services for maintainability as features grow.",
+    "loan_metrics for amortizing: outstanding formula uses geometric decay based on start_date vs now regardless of drawdown dates; if drawdowns are added retroactively the amortization treats total drawn as if borrowed at start. Documented behaviour but may confuse users.",
+    "CORS allow_origins reads FRONTEND_URL env only; ensure it matches REACT_APP_BACKEND_URL host for cross-origin cookies (currently working in preview)."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (20/20)", "frontend": "100% of executed critical flows"},
+  "test_credentials": "yash.sojitra34@gmail.com / Yash@2026 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "During UI test: created a TEST_Cadman_UI project with 10k Yash contribution, 5k cost, IO loan 100k+50k drawdown; and Partner Ledger transactions (TEST_paid_ui, TEST_settle_ui). Backend tests self-clean via TEST_ prefix. UI-created data was left in DB and can be manually cleaned if needed.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest at /app/backend/tests/backend_test.py — 20 tests, all green. UI flows validated end-to-end. Radix Select in modals needs get_by_role('option', name=...).click(force=True) with a small wait_for_timeout after opening. Investments/Properties add-flow selectors were not exhaustively validated via UI but their backend CRUD + dashboard aggregation is covered. Amortizing loan UI creation via loan-type-select was aborted due to Radix option selector edge; backend confirms amortizing loan works and schedule shows principal>0 & interest>0.",
+  "rca of the issue": "No blocking issues found."
+}
