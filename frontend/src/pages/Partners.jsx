@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, apiError } from "../lib/api";
+import { useAuth } from "../context/AuthContext";
 import { fmt, fmt2, fmtDate, today, PARTNERS } from "../lib/format";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -22,12 +23,16 @@ export default function Partners() {
     date: today(), type: "paid_on_behalf", from_partner: "Yash", to_partner: "Sanjay",
     amount: "", project_id: "", note: "",
   });
+  const [personal, setPersonal] = useState([]);
+  const [pOpen, setPOpen] = useState(false);
+  const [pForm, setPForm] = useState({ person: "", direction: "i_paid", amount: "", date: today(), note: "" });
+  const { user } = useAuth();
 
   const load = async () => {
-    const [t, b, p] = await Promise.all([
-      api.get("/ledger"), api.get("/ledger/balances"), api.get("/projects"),
+    const [t, b, p, pd] = await Promise.all([
+      api.get("/ledger"), api.get("/ledger/balances"), api.get("/projects"), api.get("/ledger/personal"),
     ]);
-    setTxns(t.data); setBalances(b.data); setProjects(p.data);
+    setTxns(t.data); setBalances(b.data); setProjects(p.data); setPersonal(pd.data.pairs);
   };
   useEffect(() => { load(); }, []);
 
@@ -46,6 +51,24 @@ export default function Partners() {
     } catch (err) { toast.error(apiError(err)); }
   };
 
+  const submitPersonal = async (e) => {
+    e.preventDefault();
+    try {
+      const me = user?.name || "Yash";
+      const other = pForm.person.trim();
+      await api.post("/ledger", {
+        date: pForm.date, type: "personal",
+        from_partner: pForm.direction === "i_paid" ? me : other,
+        to_partner: pForm.direction === "i_paid" ? other : me,
+        amount: Number(pForm.amount), note: pForm.note,
+      });
+      toast.success("Personal debt recorded");
+      setPOpen(false);
+      setPForm({ person: "", direction: "i_paid", amount: "", date: today(), note: "" });
+      load();
+    } catch (err) { toast.error(apiError(err)); }
+  };
+
   const openReport = async () => {
     const r = await api.get("/ledger/report");
     setReport(r.data);
@@ -59,6 +82,10 @@ export default function Partners() {
     Object.entries(report.balances.totals).forEach(([k, v]) => {
       txt += Math.abs(v) < 0.005 ? `${k}: settled\n` : v > 0 ? `${k}: Take from Company $${v.toFixed(2)}\n` : `${k}: Pay to Company $${(-v).toFixed(2)}\n`;
     });
+    if (report.personal_transactions && report.personal_transactions.length) {
+      txt += `\n== PERSONAL DEBTS (outside company pool) ==\n`;
+      report.personal.pairs.forEach((p) => { txt += `${p.debtor} owes ${p.creditor}: $${p.amount.toFixed(2)}\n`; });
+    }
     txt += `\n== ALL TRANSACTIONS ==\n`;
     report.transactions.forEach((t) => {
       txt += `${t.date} | ${t.type === "paid_on_behalf" ? `${t.from_partner} paid for ${t.to_partner}` : `${t.from_partner} paid ${t.to_partner}`} | $${t.amount.toFixed(2)}${t.project_name ? ` | ${t.project_name}` : ""}${t.note ? ` | ${t.note}` : ""}\n`;
@@ -167,6 +194,82 @@ export default function Partners() {
         </CardContent>
       </Card>
 
+      <Card data-testid="personal-debts-card">
+        <CardHeader className="flex-row items-center justify-between space-y-0">
+          <div>
+            <CardTitle className="font-heading text-lg">Personal Debts</CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">Money paid for someone personally — outside the company pool, not tied to any project.</p>
+          </div>
+          <Dialog open={pOpen} onOpenChange={setPOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm" variant="outline" data-testid="add-personal-button"><Plus className="h-4 w-4 mr-1" /> Add Personal</Button>
+            </DialogTrigger>
+            <DialogContent data-testid="add-personal-dialog">
+              <DialogHeader><DialogTitle className="font-heading">Add Personal Debt</DialogTitle></DialogHeader>
+              <form onSubmit={submitPersonal} className="space-y-4">
+                <div className="space-y-1.5"><Label>Direction</Label>
+                  <Select value={pForm.direction} onValueChange={(v) => setPForm({ ...pForm, direction: v })}>
+                    <SelectTrigger data-testid="personal-direction-select"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="i_paid">I paid for them (they owe me)</SelectItem>
+                      <SelectItem value="they_paid">They paid for me (I owe them)</SelectItem>
+                    </SelectContent>
+                  </Select></div>
+                <div className="space-y-1.5"><Label>Person</Label>
+                  <Input data-testid="personal-person-input" required value={pForm.person}
+                    onChange={(e) => setPForm({ ...pForm, person: e.target.value })} placeholder="e.g. Sanjay" /></div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5"><Label>Date</Label>
+                    <DatePicker testid="personal-date-input" value={pForm.date} onChange={(v) => setPForm({ ...pForm, date: v })} /></div>
+                  <div className="space-y-1.5"><Label>Amount (AUD)</Label>
+                    <Input data-testid="personal-amount-input" type="number" step="0.01" required value={pForm.amount}
+                      onChange={(e) => setPForm({ ...pForm, amount: e.target.value })} /></div>
+                </div>
+                <div className="space-y-1.5"><Label>Note</Label>
+                  <Input data-testid="personal-note-input" value={pForm.note}
+                    onChange={(e) => setPForm({ ...pForm, note: e.target.value })} placeholder="e.g. Paid his car rego" /></div>
+                <Button data-testid="personal-submit" type="submit" className="w-full">Save</Button>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {personal.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No personal debts recorded.</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {personal.map((pr) => {
+                const me = user?.name || "Yash";
+                const label = pr.creditor === me ? `${pr.debtor} owes me`
+                  : pr.debtor === me ? `I owe ${pr.creditor}` : `${pr.debtor} owes ${pr.creditor}`;
+                return (
+                  <div key={`${pr.debtor}-${pr.creditor}`} className="flex items-center justify-between rounded-lg border border-border p-3.5"
+                    data-testid={`personal-debt-${pr.debtor.toLowerCase()}-${pr.creditor.toLowerCase()}`}>
+                    <span className="text-sm font-medium">{label}</span>
+                    <span className="font-mono text-sm text-gold font-semibold">{fmt2(pr.amount)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {txns && txns.filter((t) => t.type === "personal").length > 0 && (
+            <div className="space-y-1.5 border-t border-border pt-3">
+              <p className="label-overline">Personal entries</p>
+              {txns.filter((t) => t.type === "personal").map((t) => (
+                <div key={t.id} className="flex items-center justify-between text-sm" data-testid={`personal-txn-${t.id}`}>
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {fmtDate(t.date)} · {t.from_partner} paid for {t.to_partner} · {fmt2(t.amount)}{t.note ? ` · ${t.note}` : ""}
+                  </span>
+                  <Button variant="ghost" size="icon" data-testid={`delete-personal-${t.id}`}
+                    onClick={async () => { await api.delete(`/ledger/${t.id}`); toast.success("Deleted"); load(); }}>
+                    <Trash2 className="h-3.5 w-3.5 text-negative" /></Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <Card data-testid="transactions-card">
         <CardHeader><CardTitle className="font-heading text-lg">All Transactions</CardTitle></CardHeader>
         <CardContent>
@@ -181,7 +284,7 @@ export default function Partners() {
                   <th className="pb-2 pr-4">Amount</th><th className="pb-2"></th>
                 </tr></thead>
                 <tbody className="font-mono">
-                  {txns.map((t) => (
+                  {txns.filter((t) => t.type !== "personal").map((t) => (
                     <tr key={t.id} className="border-b border-border/50" data-testid={`txn-row-${t.id}`}>
                       <td className="py-2.5 pr-4">{fmtDate(t.date)}</td>
                       <td className="py-2.5 pr-4 font-sans">
@@ -219,6 +322,18 @@ export default function Partners() {
                   ))}
                 </div>
               </div>
+              {report.personal && report.personal.pairs.length > 0 && (
+                <div>
+                  <p className="label-overline mb-2">Personal debts (outside company pool)</p>
+                  <div className="space-y-1.5">
+                    {report.personal.pairs.map((p) => (
+                      <p key={`${p.debtor}-${p.creditor}`} className="text-sm font-mono" data-testid={`report-personal-${p.debtor.toLowerCase()}-${p.creditor.toLowerCase()}`}>
+                        {p.debtor} owes {p.creditor} {fmt2(p.amount)}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div>
                 <p className="label-overline mb-2">Transaction history ({report.transactions.length})</p>
                 <div className="space-y-1.5 max-h-64 overflow-y-auto">

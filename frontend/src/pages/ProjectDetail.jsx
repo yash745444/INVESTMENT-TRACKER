@@ -39,6 +39,7 @@ export default function ProjectDetail() {
   if (!project) return <div className="text-muted-foreground">Loading…</div>;
 
   const partnerNames = project.partners?.length ? project.partners.map((p) => p.name) : PARTNERS;
+  const readOnly = !!project.shared;
   const totalContrib = contributions.reduce((s, c) => s + c.amount, 0);
   const totalCosts = costs.reduce((s, c) => s + c.amount, 0);
   const totalDrawn = loans.reduce((s, l) => s + l.metrics.drawn, 0);
@@ -54,6 +55,7 @@ export default function ProjectDetail() {
         <div>
           <h1 className="font-heading font-bold text-2xl sm:text-3xl tracking-tight">{project.name}</h1>
           {project.address && <p className="text-sm text-muted-foreground">{project.address}</p>}
+          {readOnly && <span className="inline-block mt-1 text-[10px] font-mono px-2 py-0.5 rounded-full border text-gold" style={{ borderColor: "hsl(var(--gold))" }} data-testid="project-readonly-badge">Shared project · view only</span>}
         </div>
       </div>
 
@@ -143,13 +145,13 @@ export default function ProjectDetail() {
         </TabsContent>
 
         <TabsContent value="contributions" className="mt-5">
-          <ContributionsTab projectId={id} contributions={contributions} reload={load} partnerNames={partnerNames} />
+          <ContributionsTab projectId={id} contributions={contributions} reload={load} partnerNames={partnerNames} readOnly={readOnly} />
         </TabsContent>
         <TabsContent value="costs" className="mt-5">
-          <CostsTab projectId={id} costs={costs} reload={load} partnerNames={partnerNames} />
+          <CostsTab projectId={id} costs={costs} reload={load} partnerNames={partnerNames} readOnly={readOnly} />
         </TabsContent>
         <TabsContent value="loans" className="mt-5">
-          <LoansTab projectId={id} loans={loans} reload={load} />
+          <LoansTab projectId={id} loans={loans} reload={load} readOnly={readOnly} />
         </TabsContent>
       </Tabs>
     </div>
@@ -169,7 +171,7 @@ function DataTable({ head, rows, testid }) {
   );
 }
 
-function ContributionsTab({ projectId, contributions, reload, partnerNames }) {
+function ContributionsTab({ projectId, contributions, reload, partnerNames, readOnly }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ date: today(), partner: "Yash", amount: "", description: "" });
 
@@ -188,6 +190,7 @@ function ContributionsTab({ projectId, contributions, reload, partnerNames }) {
     <Card>
       <CardHeader className="flex-row items-center justify-between space-y-0">
         <CardTitle className="font-heading text-lg">Capital Contributions</CardTitle>
+        {!readOnly && (
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild><Button size="sm" data-testid="add-contribution-button"><Plus className="h-4 w-4 mr-1" /> Add</Button></DialogTrigger>
           <DialogContent data-testid="add-contribution-dialog">
@@ -209,7 +212,7 @@ function ContributionsTab({ projectId, contributions, reload, partnerNames }) {
               <Button data-testid="contribution-submit" type="submit" className="w-full">Save</Button>
             </form>
           </DialogContent>
-        </Dialog>
+        </Dialog>)}
       </CardHeader>
       <CardContent>
         {contributions.length === 0 ? <p className="text-sm text-muted-foreground">No contributions recorded.</p> : (
@@ -220,9 +223,9 @@ function ContributionsTab({ projectId, contributions, reload, partnerNames }) {
                 <td className="py-2.5 pr-4 font-sans font-medium">{c.partner}</td>
                 <td className="py-2.5 pr-4 font-sans">{c.description || "—"}</td>
                 <td className="py-2.5 pr-4">{fmt2(c.amount)}</td>
-                <td className="py-2.5"><Button variant="ghost" size="icon" data-testid={`delete-contribution-${c.id}`}
+                <td className="py-2.5">{!readOnly && (<Button variant="ghost" size="icon" data-testid={`delete-contribution-${c.id}`}
                   onClick={async () => { await api.delete(`/contributions/${c.id}`); toast.success("Deleted"); reload(); }}>
-                  <Trash2 className="h-3.5 w-3.5 text-negative" /></Button></td>
+                  <Trash2 className="h-3.5 w-3.5 text-negative" /></Button>)}</td>
               </tr>
             ))} />
         )}
@@ -231,7 +234,7 @@ function ContributionsTab({ projectId, contributions, reload, partnerNames }) {
   );
 }
 
-function CostsTab({ projectId, costs, reload, partnerNames }) {
+function CostsTab({ projectId, costs, reload, partnerNames, readOnly }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ date: today(), category: "Site Acquisition", amount: "", description: "", paid_by: "" });
 
@@ -264,6 +267,7 @@ function CostsTab({ projectId, costs, reload, partnerNames }) {
       <Card>
         <CardHeader className="flex-row items-center justify-between space-y-0">
           <CardTitle className="font-heading text-lg">Project Cash / Cost Tracker</CardTitle>
+          {!readOnly && (
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild><Button size="sm" data-testid="add-cost-button"><Plus className="h-4 w-4 mr-1" /> Add Cost</Button></DialogTrigger>
             <DialogContent data-testid="add-cost-dialog">
@@ -292,7 +296,7 @@ function CostsTab({ projectId, costs, reload, partnerNames }) {
                 <Button data-testid="cost-submit" type="submit" className="w-full">Save</Button>
               </form>
             </DialogContent>
-          </Dialog>
+          </Dialog>)}
         </CardHeader>
         <CardContent>
           {costs.length === 0 ? <p className="text-sm text-muted-foreground">No costs recorded.</p> : (
@@ -304,9 +308,9 @@ function CostsTab({ projectId, costs, reload, partnerNames }) {
                   <td className="py-2.5 pr-4 font-sans">{c.description || "—"}</td>
                   <td className="py-2.5 pr-4 font-sans">{c.paid_by || "—"}</td>
                   <td className="py-2.5 pr-4 text-negative">{fmt2(c.amount)}</td>
-                  <td className="py-2.5"><Button variant="ghost" size="icon" data-testid={`delete-cost-${c.id}`}
+                  <td className="py-2.5">{!readOnly && (<Button variant="ghost" size="icon" data-testid={`delete-cost-${c.id}`}
                     onClick={async () => { await api.delete(`/costs/${c.id}`); toast.success("Deleted"); reload(); }}>
-                    <Trash2 className="h-3.5 w-3.5 text-negative" /></Button></td>
+                    <Trash2 className="h-3.5 w-3.5 text-negative" /></Button>)}</td>
                 </tr>
               ))} />
           )}
@@ -316,7 +320,7 @@ function CostsTab({ projectId, costs, reload, partnerNames }) {
   );
 }
 
-function LoansTab({ projectId, loans, reload }) {
+function LoansTab({ projectId, loans, reload, readOnly }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ name: "", lender: "", type: "interest_only", annual_rate: "", term_months: "", start_date: today(), first_amount: "", first_date: today() });
 
@@ -339,6 +343,7 @@ function LoansTab({ projectId, loans, reload }) {
   return (
     <div className="space-y-5">
       <div className="flex justify-end">
+        {!readOnly && (
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild><Button size="sm" data-testid="add-loan-button"><Plus className="h-4 w-4 mr-1" /> Add Loan</Button></DialogTrigger>
           <DialogContent data-testid="add-loan-dialog">
@@ -377,18 +382,18 @@ function LoansTab({ projectId, loans, reload }) {
               <Button data-testid="loan-submit" type="submit" className="w-full">Save Loan</Button>
             </form>
           </DialogContent>
-        </Dialog>
+        </Dialog>)}
       </div>
 
       {loans.length === 0 && (
         <Card><CardContent className="p-10 text-center text-muted-foreground">No loans yet. Add a facility to track drawdowns and repayments.</CardContent></Card>
       )}
-      {loans.map((l) => <LoanCard key={l.id} loan={l} reload={reload} />)}
+      {loans.map((l) => <LoanCard key={l.id} loan={l} reload={reload} readOnly={readOnly} />)}
     </div>
   );
 }
 
-function LoanCard({ loan, reload }) {
+function LoanCard({ loan, reload, readOnly }) {
   const [schedule, setSchedule] = useState(null);
   const [ddOpen, setDdOpen] = useState(false);
   const [dd, setDd] = useState({ date: today(), amount: "", description: "" });
@@ -423,6 +428,7 @@ function LoanCard({ loan, reload }) {
             </p>
           </div>
           <div className="flex gap-1.5">
+            {!readOnly && (
             <Dialog open={ddOpen} onOpenChange={setDdOpen}>
               <DialogTrigger asChild><Button size="sm" variant="outline" data-testid={`add-drawdown-${loan.id}`}><Plus className="h-3.5 w-3.5 mr-1" /> Drawdown</Button></DialogTrigger>
               <DialogContent data-testid="add-drawdown-dialog">
@@ -439,14 +445,15 @@ function LoanCard({ loan, reload }) {
                   <Button data-testid="drawdown-submit" type="submit" className="w-full">Add Drawdown</Button>
                 </form>
               </DialogContent>
-            </Dialog>
+            </Dialog>)}
             <Button size="sm" variant="ghost" data-testid={`toggle-schedule-${loan.id}`} onClick={toggleSchedule}>
               {schedule ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
             </Button>
+            {!readOnly && (
             <Button size="sm" variant="ghost" data-testid={`delete-loan-${loan.id}`}
               onClick={async () => { await api.delete(`/loans/${loan.id}`); toast.success("Loan deleted"); reload(); }}>
               <Trash2 className="h-4 w-4 text-negative" />
-            </Button>
+            </Button>)}
           </div>
         </div>
 

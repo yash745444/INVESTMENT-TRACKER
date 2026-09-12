@@ -8,15 +8,15 @@ import { Label } from "../components/ui/label";
 import { Card, CardContent } from "../components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { toast } from "sonner";
-import { Plus, HardHat, X } from "lucide-react";
+import { Plus, HardHat, X, Trash2 } from "lucide-react";
 
 export default function Projects() {
   const [projects, setProjects] = useState(null);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ name: "", address: "", description: "" });
   const [partnerRows, setPartnerRows] = useState([
-    { name: "Yash", percentage: 25 }, { name: "Sanjay", percentage: 25 },
-    { name: "Pranay", percentage: 25 }, { name: "Max", percentage: 25 },
+    { name: "Yash", percentage: 25, email: "" }, { name: "Sanjay", percentage: 25, email: "" },
+    { name: "Pranay", percentage: 25, email: "" }, { name: "Max", percentage: 25, email: "" },
   ]);
   const navigate = useNavigate();
 
@@ -28,7 +28,7 @@ export default function Projects() {
     try {
       await api.post("/projects", {
         ...form,
-        partners: partnerRows.filter((r) => r.name.trim()).map((r) => ({ name: r.name.trim(), percentage: Number(r.percentage) || 0 })),
+        partners: partnerRows.filter((r) => r.name.trim()).map((r) => ({ name: r.name.trim(), percentage: Number(r.percentage) || 0, email: (r.email || "").trim() })),
       });
       toast.success("Project created");
       setOpen(false);
@@ -69,17 +69,22 @@ export default function Projects() {
                 <Label>Ownership %</Label>
                 <div className="space-y-2">
                   {partnerRows.map((row, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <Input data-testid={`project-partner-name-${i}`} value={row.name} placeholder="Partner name"
-                        onChange={(e) => setPartnerRows(partnerRows.map((r, j) => j === i ? { ...r, name: e.target.value } : r))} />
-                      <Input data-testid={`project-partner-pct-${i}`} type="number" step="0.01" className="w-24 shrink-0" value={row.percentage}
-                        onChange={(e) => setPartnerRows(partnerRows.map((r, j) => j === i ? { ...r, percentage: e.target.value } : r))} />
-                      {partnerRows.length > 1 && (
-                        <Button type="button" variant="ghost" size="icon" data-testid={`project-partner-remove-${i}`}
-                          onClick={() => setPartnerRows(partnerRows.filter((_, j) => j !== i))}>
-                          <X className="h-3.5 w-3.5" />
-                        </Button>
-                      )}
+                    <div key={i} className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <Input data-testid={`project-partner-name-${i}`} value={row.name} placeholder="Partner name"
+                          onChange={(e) => setPartnerRows(partnerRows.map((r, j) => j === i ? { ...r, name: e.target.value } : r))} />
+                        <Input data-testid={`project-partner-pct-${i}`} type="number" step="0.01" className="w-24 shrink-0" value={row.percentage}
+                          onChange={(e) => setPartnerRows(partnerRows.map((r, j) => j === i ? { ...r, percentage: e.target.value } : r))} />
+                        {partnerRows.length > 1 && (
+                          <Button type="button" variant="ghost" size="icon" data-testid={`project-partner-remove-${i}`}
+                            onClick={() => setPartnerRows(partnerRows.filter((_, j) => j !== i))}>
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
+                      <Input data-testid={`project-partner-email-${i}`} value={row.email || ""} className="text-xs"
+                        placeholder="Partner email (optional — links their account to this project)"
+                        onChange={(e) => setPartnerRows(partnerRows.map((r, j) => j === i ? { ...r, email: e.target.value } : r))} />
                     </div>
                   ))}
                 </div>
@@ -112,9 +117,26 @@ export default function Projects() {
             <Card key={p.id} className="card-hover cursor-pointer" data-testid={`project-card-${p.id}`}
               onClick={() => navigate(`/projects/${p.id}`)}>
               <CardContent className="p-5 space-y-4">
-                <div>
-                  <h3 className="font-heading font-semibold text-lg tracking-tight">{p.name}</h3>
-                  {p.address && <p className="text-xs text-muted-foreground mt-0.5">{p.address}</p>}
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h3 className="font-heading font-semibold text-lg tracking-tight">{p.name}</h3>
+                    {p.address && <p className="text-xs text-muted-foreground mt-0.5">{p.address}</p>}
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {p.shared && <span className="text-[10px] font-mono px-2 py-0.5 rounded-full border text-gold" style={{ borderColor: "hsl(var(--gold))" }} data-testid={`project-shared-${p.id}`}>Shared</span>}
+                    {!p.shared && (
+                      <Button variant="ghost" size="icon" data-testid={`delete-project-${p.id}`}
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (!window.confirm(`Delete project "${p.name}" and all its records?`)) return;
+                          await api.delete(`/projects/${p.id}`);
+                          toast.success("Project deleted");
+                          load();
+                        }}>
+                        <Trash2 className="h-4 w-4 text-negative" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div><p className="label-overline">Contributed</p>

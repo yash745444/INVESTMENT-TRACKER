@@ -91,26 +91,38 @@ def set_auth_cookies(response: Response, user_id: str, email: str):
 
 
 async def get_current_user(request: Request):
+    user = None
     token = request.cookies.get("access_token")
-    if not token:
-        auth = request.headers.get("Authorization", "")
-        if auth.startswith("Bearer "):
-            token = auth[7:]
-    if not token:
-        raise HTTPException(401, "Not authenticated")
-    try:
-        payload = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
-        if payload.get("type") != "access":
-            raise HTTPException(401, "Invalid token type")
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(401, "Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(401, "Invalid token")
-    user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+    auth = request.headers.get("Authorization", "")
+    bearer = auth[7:] if auth.startswith("Bearer ") else None
+    if not token and bearer:
+        token = bearer
+    if token:
+        try:
+            payload = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
+            if payload.get("type") == "access":
+                user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+        except jwt.InvalidTokenError:
+            user = None
     if not user:
-        raise HTTPException(401, "User not found")
+        st = request.cookies.get("session_token") or bearer
+        if st:
+            sess = await db.user_sessions.find_one({"session_token": st})
+            if sess:
+                exp = sess.get("expires_at")
+                if isinstance(exp, str):
+                    exp = datetime.fromisoformat(exp)
+                if exp.tzinfo is None:
+                    exp = exp.replace(tzinfo=timezone.utc)
+                if exp > now_utc():
+                    user = await db.users.find_one({"_id": ObjectId(sess["user_id"])})
+    if not user:
+        raise HTTPException(401, "Not authenticated")
     user["id"] = str(user.pop("_id"))
     user.pop("password_hash", None)
+    if user.get("status", "approved") != "approved" and request.url.path not in (
+            "/api/auth/me", "/api/auth/logout", "/api/auth/refresh"):
+        raise HTTPException(403, "pending_approval")
     return user
 
 
@@ -224,13 +236,36 @@ class DrawdownIn(BaseModel):
 
 class LedgerIn(BaseModel):
     date: str
-    type: str  # paid_on_behalf | settlement
-    from_partner: str  # payer (paid_on_behalf) / sender (settlement)
-    to_partner: str    # beneficiary (paid_on_behalf) / receiver (settlement)
+    type: str  # paid_on_behalf | settlement | personal
+    from_partner: str  # payer (paid_on_behalf/personal) / sender (settlement)
+    to_partner: str    # beneficiary (paid_on_behalf/personal) / receiver (settlement)
     amount: float
     project_id: Optional[str] = None
     project_name: Optional[str] = ""
     note: Optional[str] = ""
+
+
+class FeasibilityIn(BaseModel):
+    name: str
+    land_cost: float = 0
+    construction_cost: float = 0
+    bond: float = 0
+    council_permits: float = 0
+    design_architect: float = 0
+    finance_interest: float = 0
+    legal: float = 0
+    marketing: float = 0
+    contingency_pct: float = 10
+    other_costs: float = 0
+    expected_revenue: float = 0
+
+
+class GoogleSessionIn(BaseModel):
+    session_id: str
+
+
+class StatusIn(BaseModel):
+    status: str
 
 
 class InvestmentIn(BaseModel):
@@ -281,13 +316,20 @@ async def login(data: LoginIn, request: Request, response: Response):
         raise HTTPException(401, "Invalid email or password")
     await db.login_attempts.delete_one({"identifier": identifier})
     set_auth_cookies(response, str(user["_id"]), email)
-    return {"id": str(user["_id"]), "email": email, "name": user.get("name", "")}
+    return {"id": str(user["_id"]), "email": email, "name": user.get("name", ""),
+            "picture": user.get("picture", ""), "role": user.get("role", "user"),
+            "status": user.get("status", "approved")}
 
 
 @app.post("/api/auth/logout")
-async def logout(response: Response):
+async def logout(request: Request, response: Response):
+    st = request.cookies.get("session_token")
+    if st:
+        await db.user_sessions.delete_many({"session_token": st})
     response.delete_cookie("access_token", path="/")
     response.delete_cookie("refresh_token", path="/")
+    response.delete_cookie("session_token", path="/")
+    response.delete_cookie("shares_unlock", path="/")
     return {"ok": True}
 
 
@@ -327,9 +369,12 @@ async def rates(user=Depends(get_current_user)):
 @app.get("/api/projects")
 async def list_projects(user=Depends(get_current_user)):
     out = []
-    async for p in db.projects.find().sort("created_at", -1):
+    query = {"$or": [{"user_id": user["id"]}, {"partners.email": user["email"]}]}
+    async for p in db.projects.find(query).sort("created_at", -1):
         pid = str(p["_id"])
+        owner_id = p.get("user_id")
         p = doc_out(p)
+        p["shared"] = owner_id != user["id"]
         contrib = 0.0
         async for c in db.contributions.find({"project_id": pid}):
             contrib += c["amount"]
@@ -354,6 +399,10 @@ async def create_project(data: ProjectIn, user=Depends(get_current_user)):
     total_pct = sum(p.get("percentage", 0) for p in doc["partners"])
     if doc["partners"] and abs(total_pct - 100) > 0.01:
         raise HTTPException(400, f"Partner percentages must sum to 100 (currently {total_pct})")
+    for pt in doc["partners"]:
+        if pt.get("email"):
+            pt["email"] = pt["email"].lower().strip()
+    doc["user_id"] = user["id"]
     doc["created_at"] = now_utc().isoformat()
     res = await db.projects.insert_one(doc)
     return doc_out(await db.projects.find_one({"_id": res.inserted_id}))
@@ -361,24 +410,34 @@ async def create_project(data: ProjectIn, user=Depends(get_current_user)):
 
 @app.get("/api/projects/{pid}")
 async def get_project(pid: str, user=Depends(get_current_user)):
-    p = await db.projects.find_one({"_id": ObjectId(pid)})
-    if not p:
-        raise HTTPException(404, "Project not found")
-    return doc_out(p)
+    p = await get_project_access(pid, user)
+    owner_id = p.get("user_id")
+    p = doc_out(p)
+    p["shared"] = owner_id != user["id"]
+    return p
 
 
 @app.put("/api/projects/{pid}")
 async def update_project(pid: str, data: ProjectIn, user=Depends(get_current_user)):
+    existing = await db.projects.find_one({"_id": ObjectId(pid)})
+    if not existing or existing.get("user_id") != user["id"]:
+        raise HTTPException(403, "Only the project owner can edit")
     doc = data.model_dump()
     total_pct = sum(p.get("percentage", 0) for p in doc["partners"])
     if doc["partners"] and abs(total_pct - 100) > 0.01:
         raise HTTPException(400, f"Partner percentages must sum to 100 (currently {total_pct})")
+    for pt in doc["partners"]:
+        if pt.get("email"):
+            pt["email"] = pt["email"].lower().strip()
     await db.projects.update_one({"_id": ObjectId(pid)}, {"$set": doc})
     return doc_out(await db.projects.find_one({"_id": ObjectId(pid)}))
 
 
 @app.delete("/api/projects/{pid}")
 async def delete_project(pid: str, user=Depends(get_current_user)):
+    existing = await db.projects.find_one({"_id": ObjectId(pid)})
+    if not existing or existing.get("user_id") != user["id"]:
+        raise HTTPException(403, "Only the project owner can delete")
     await db.projects.delete_one({"_id": ObjectId(pid)})
     for coll in ("contributions", "costs", "loans"):
         await db[coll].delete_many({"project_id": pid})
@@ -386,6 +445,26 @@ async def delete_project(pid: str, user=Depends(get_current_user)):
 
 
 # ---------------- contributions / costs ----------------
+
+async def get_project_access(pid: str, user: dict):
+    p = await db.projects.find_one({"_id": ObjectId(pid)})
+    if not p:
+        raise HTTPException(404, "Project not found")
+    if p.get("user_id") == user["id"] or any(
+            pt.get("email") == user["email"] for pt in p.get("partners", [])):
+        return p
+    raise HTTPException(403, "No access to this project")
+
+
+async def get_loan_checked(lid: str, user: dict, write: bool = False):
+    l = await db.loans.find_one({"_id": ObjectId(lid)})
+    if not l:
+        raise HTTPException(404, "Loan not found")
+    p = await get_project_access(l["project_id"], user)
+    if write and p.get("user_id") != user["id"]:
+        raise HTTPException(403, "Only the project owner can modify loans")
+    return l
+
 
 async def crud_list(coll, pid):
     out = []
@@ -396,36 +475,50 @@ async def crud_list(coll, pid):
 
 @app.get("/api/projects/{pid}/contributions")
 async def list_contributions(pid: str, user=Depends(get_current_user)):
+    await get_project_access(pid, user)
     return await crud_list("contributions", pid)
 
 
 @app.post("/api/projects/{pid}/contributions")
 async def add_contribution(pid: str, data: ContributionIn, user=Depends(get_current_user)):
-    doc = data.model_dump(); doc["project_id"] = pid
+    p = await get_project_access(pid, user)
+    if p.get("user_id") != user["id"]:
+        raise HTTPException(403, "Only the project owner can add records")
+    doc = data.model_dump(); doc["project_id"] = pid; doc["user_id"] = p["user_id"]
     res = await db.contributions.insert_one(doc)
     return doc_out(await db.contributions.find_one({"_id": res.inserted_id}))
 
 
 @app.delete("/api/contributions/{cid}")
 async def delete_contribution(cid: str, user=Depends(get_current_user)):
+    c = await db.contributions.find_one({"_id": ObjectId(cid)})
+    if not c or c.get("user_id") != user["id"]:
+        raise HTTPException(403, "Not allowed")
     await db.contributions.delete_one({"_id": ObjectId(cid)})
     return {"ok": True}
 
 
 @app.get("/api/projects/{pid}/costs")
 async def list_costs(pid: str, user=Depends(get_current_user)):
+    await get_project_access(pid, user)
     return await crud_list("costs", pid)
 
 
 @app.post("/api/projects/{pid}/costs")
 async def add_cost(pid: str, data: CostIn, user=Depends(get_current_user)):
-    doc = data.model_dump(); doc["project_id"] = pid
+    p = await get_project_access(pid, user)
+    if p.get("user_id") != user["id"]:
+        raise HTTPException(403, "Only the project owner can add records")
+    doc = data.model_dump(); doc["project_id"] = pid; doc["user_id"] = p["user_id"]
     res = await db.costs.insert_one(doc)
     return doc_out(await db.costs.find_one({"_id": res.inserted_id}))
 
 
 @app.delete("/api/costs/{cid}")
 async def delete_cost(cid: str, user=Depends(get_current_user)):
+    c = await db.costs.find_one({"_id": ObjectId(cid)})
+    if not c or c.get("user_id") != user["id"]:
+        raise HTTPException(403, "Not allowed")
     await db.costs.delete_one({"_id": ObjectId(cid)})
     return {"ok": True}
 
@@ -462,6 +555,7 @@ def loan_metrics(loan: dict) -> dict:
 
 @app.get("/api/projects/{pid}/loans")
 async def list_loans(pid: str, user=Depends(get_current_user)):
+    await get_project_access(pid, user)
     out = []
     async for l in db.loans.find({"project_id": pid}):
         l = doc_out(l)
@@ -472,9 +566,12 @@ async def list_loans(pid: str, user=Depends(get_current_user)):
 
 @app.post("/api/projects/{pid}/loans")
 async def add_loan(pid: str, data: LoanIn, user=Depends(get_current_user)):
+    p = await get_project_access(pid, user)
+    if p.get("user_id") != user["id"]:
+        raise HTTPException(403, "Only the project owner can add loans")
     if data.type not in ("interest_only", "amortizing"):
         raise HTTPException(400, "type must be interest_only or amortizing")
-    doc = data.model_dump(); doc["project_id"] = pid
+    doc = data.model_dump(); doc["project_id"] = pid; doc["user_id"] = p["user_id"]
     res = await db.loans.insert_one(doc)
     l = doc_out(await db.loans.find_one({"_id": res.inserted_id}))
     l["metrics"] = loan_metrics(l)
@@ -483,6 +580,7 @@ async def add_loan(pid: str, data: LoanIn, user=Depends(get_current_user)):
 
 @app.put("/api/loans/{lid}")
 async def update_loan(lid: str, data: LoanIn, user=Depends(get_current_user)):
+    await get_loan_checked(lid, user, write=True)
     doc = data.model_dump()
     await db.loans.update_one({"_id": ObjectId(lid)}, {"$set": doc})
     l = doc_out(await db.loans.find_one({"_id": ObjectId(lid)}))
@@ -492,12 +590,14 @@ async def update_loan(lid: str, data: LoanIn, user=Depends(get_current_user)):
 
 @app.delete("/api/loans/{lid}")
 async def delete_loan(lid: str, user=Depends(get_current_user)):
+    await get_loan_checked(lid, user, write=True)
     await db.loans.delete_one({"_id": ObjectId(lid)})
     return {"ok": True}
 
 
 @app.post("/api/loans/{lid}/drawdowns")
 async def add_drawdown(lid: str, data: DrawdownIn, user=Depends(get_current_user)):
+    await get_loan_checked(lid, user, write=True)
     await db.loans.update_one({"_id": ObjectId(lid)},
                               {"$push": {"drawdowns": data.model_dump()}})
     l = doc_out(await db.loans.find_one({"_id": ObjectId(lid)}))
@@ -507,9 +607,7 @@ async def add_drawdown(lid: str, data: DrawdownIn, user=Depends(get_current_user
 
 @app.get("/api/loans/{lid}/schedule")
 async def loan_schedule(lid: str, months: int = 12, user=Depends(get_current_user)):
-    loan = await db.loans.find_one({"_id": ObjectId(lid)})
-    if not loan:
-        raise HTTPException(404, "Loan not found")
+    loan = await get_loan_checked(lid, user)
     m = loan_metrics(loan)
     r = loan.get("annual_rate", 0) / 100 / 12
     balance = m["outstanding"]
@@ -529,7 +627,7 @@ async def loan_schedule(lid: str, months: int = 12, user=Depends(get_current_use
 @app.get("/api/ledger")
 async def list_ledger(user=Depends(get_current_user)):
     out = []
-    async for d in db.ledger.find().sort("date", -1):
+    async for d in db.ledger.find({"user_id": user["id"]}).sort("date", -1):
         out.append(doc_out(d))
     return out
 
@@ -538,7 +636,10 @@ async def list_ledger(user=Depends(get_current_user)):
 async def add_ledger(data: LedgerIn, user=Depends(get_current_user)):
     if data.from_partner == data.to_partner:
         raise HTTPException(400, "Partners must be different")
+    if data.type not in ("paid_on_behalf", "settlement", "personal"):
+        raise HTTPException(400, "Invalid transaction type")
     doc = data.model_dump()
+    doc["user_id"] = user["id"]
     doc["created_at"] = now_utc().isoformat()
     res = await db.ledger.insert_one(doc)
     return doc_out(await db.ledger.find_one({"_id": res.inserted_id}))
@@ -546,6 +647,9 @@ async def add_ledger(data: LedgerIn, user=Depends(get_current_user)):
 
 @app.delete("/api/ledger/{tid}")
 async def delete_ledger(tid: str, user=Depends(get_current_user)):
+    t = await db.ledger.find_one({"_id": ObjectId(tid)})
+    if not t or t.get("user_id") != user["id"]:
+        raise HTTPException(403, "Not allowed")
     await db.ledger.delete_one({"_id": ObjectId(tid)})
     return {"ok": True}
 
@@ -556,7 +660,7 @@ def pairwise_balances(txns) -> dict:
         a, b = t["from_partner"], t["to_partner"]
         amt = t["amount"]
         # positive net[a][b] means b owes a
-        if t["type"] == "paid_on_behalf":
+        if t["type"] in ("paid_on_behalf", "personal"):
             net.setdefault(a, {}).setdefault(b, 0.0)
             net[a][b] += amt
         else:  # settlement: money actually moved from a to b, reducing what b owes a
@@ -567,7 +671,7 @@ def pairwise_balances(txns) -> dict:
 
 @app.get("/api/ledger/balances")
 async def ledger_balances(user=Depends(get_current_user)):
-    txns = [t async for t in db.ledger.find()]
+    txns = [t async for t in db.ledger.find({"user_id": user["id"], "type": {"$ne": "personal"}})]
     net = pairwise_balances(txns)
     pairs = []
     seen = set()
@@ -594,11 +698,35 @@ async def ledger_balances(user=Depends(get_current_user)):
     return {"pairs": pairs, "totals": {k: round(v, 2) for k, v in totals.items()}}
 
 
+@app.get("/api/ledger/personal")
+async def personal_balances(user=Depends(get_current_user)):
+    txns = [t async for t in db.ledger.find({"user_id": user["id"], "type": "personal"})]
+    net = pairwise_balances(txns)
+    names = set()
+    for t in txns:
+        names.add(t["from_partner"]); names.add(t["to_partner"])
+    pairs = []
+    seen = set()
+    for a in names:
+        for b in names:
+            if a == b or (b, a) in seen:
+                continue
+            seen.add((a, b))
+            n = net.get(a, {}).get(b, 0.0) - net.get(b, {}).get(a, 0.0)
+            if abs(n) > 0.005:
+                debtor, creditor = (b, a) if n > 0 else (a, b)
+                pairs.append({"debtor": debtor, "creditor": creditor, "amount": round(abs(n), 2)})
+    return {"pairs": pairs, "me": user.get("name", "")}
+
+
 @app.get("/api/ledger/report")
 async def ledger_report(user=Depends(get_current_user)):
-    txns = [doc_out(t) async for t in db.ledger.find().sort("date", 1)]
+    txns = [doc_out(t) async for t in db.ledger.find({"user_id": user["id"], "type": {"$ne": "personal"}}).sort("date", 1)]
+    personal = [doc_out(t) async for t in db.ledger.find({"user_id": user["id"], "type": "personal"}).sort("date", 1)]
     bal = await ledger_balances(user)
-    return {"transactions": txns, "balances": bal, "partners": PARTNERS,
+    per = await personal_balances(user)
+    return {"transactions": txns, "personal_transactions": personal, "balances": bal,
+            "personal": per, "partners": PARTNERS,
             "generated_at": now_utc().isoformat()}
 
 
@@ -608,7 +736,7 @@ async def ledger_report(user=Depends(get_current_user)):
 async def list_investments(request: Request, user=Depends(get_current_user)):
     visible = shares_visible(request)
     out = []
-    async for d in db.investments.find().sort("created_at", -1):
+    async for d in db.investments.find({"user_id": user["id"]}).sort("created_at", -1):
         d = doc_out(d)
         if d.get("type") == "shares" and not visible:
             out.append({"id": d["id"], "type": "shares", "name": "Hidden holding", "symbol": "",
@@ -621,20 +749,24 @@ async def list_investments(request: Request, user=Depends(get_current_user)):
 
 @app.post("/api/investments")
 async def add_investment(data: InvestmentIn, user=Depends(get_current_user)):
-    doc = data.model_dump(); doc["created_at"] = now_utc().isoformat()
+    doc = data.model_dump(); doc["user_id"] = user["id"]; doc["created_at"] = now_utc().isoformat()
     res = await db.investments.insert_one(doc)
     return doc_out(await db.investments.find_one({"_id": res.inserted_id}))
 
 
 @app.put("/api/investments/{iid}")
 async def update_investment(iid: str, data: InvestmentIn, user=Depends(get_current_user)):
-    await db.investments.update_one({"_id": ObjectId(iid)}, {"$set": data.model_dump()})
+    res = await db.investments.update_one({"_id": ObjectId(iid), "user_id": user["id"]}, {"$set": data.model_dump()})
+    if not res.matched_count:
+        raise HTTPException(404, "Investment not found")
     return doc_out(await db.investments.find_one({"_id": ObjectId(iid)}))
 
 
 @app.delete("/api/investments/{iid}")
 async def delete_investment(iid: str, user=Depends(get_current_user)):
-    await db.investments.delete_one({"_id": ObjectId(iid)})
+    res = await db.investments.delete_one({"_id": ObjectId(iid), "user_id": user["id"]})
+    if not res.deleted_count:
+        raise HTTPException(404, "Investment not found")
     return {"ok": True}
 
 
@@ -642,25 +774,29 @@ async def delete_investment(iid: str, user=Depends(get_current_user)):
 
 @app.get("/api/properties")
 async def list_properties(user=Depends(get_current_user)):
-    return [doc_out(d) async for d in db.properties.find().sort("created_at", -1)]
+    return [doc_out(d) async for d in db.properties.find({"user_id": user["id"]}).sort("created_at", -1)]
 
 
 @app.post("/api/properties")
 async def add_property(data: PropertyIn, user=Depends(get_current_user)):
-    doc = data.model_dump(); doc["created_at"] = now_utc().isoformat()
+    doc = data.model_dump(); doc["user_id"] = user["id"]; doc["created_at"] = now_utc().isoformat()
     res = await db.properties.insert_one(doc)
     return doc_out(await db.properties.find_one({"_id": res.inserted_id}))
 
 
 @app.put("/api/properties/{pid}")
 async def update_property(pid: str, data: PropertyIn, user=Depends(get_current_user)):
-    await db.properties.update_one({"_id": ObjectId(pid)}, {"$set": data.model_dump()})
+    res = await db.properties.update_one({"_id": ObjectId(pid), "user_id": user["id"]}, {"$set": data.model_dump()})
+    if not res.matched_count:
+        raise HTTPException(404, "Property not found")
     return doc_out(await db.properties.find_one({"_id": ObjectId(pid)}))
 
 
 @app.delete("/api/properties/{pid}")
 async def delete_property(pid: str, user=Depends(get_current_user)):
-    await db.properties.delete_one({"_id": ObjectId(pid)})
+    res = await db.properties.delete_one({"_id": ObjectId(pid), "user_id": user["id"]})
+    if not res.deleted_count:
+        raise HTTPException(404, "Property not found")
     return {"ok": True}
 
 
@@ -779,7 +915,7 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
     rates_data = await rate_service.get()
     rates = rates_data["rates"]
 
-    investments = [doc_out(d) async for d in db.investments.find()]
+    investments = [doc_out(d) async for d in db.investments.find({"user_id": user["id"]})]
     worths = [investment_worth_aud(i, rates) for i in investments]
     inv_total = sum(worths)
     inv_by_type = {}
@@ -794,7 +930,7 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
         inv_total -= sum(w for i, w in zip(investments, worths) if i.get("type") == "shares")
         inv_by_type.pop("shares", None)
 
-    properties = [doc_out(d) async for d in db.properties.find()]
+    properties = [doc_out(d) async for d in db.properties.find({"user_id": user["id"]})]
     prop_value = sum(to_aud(p["current_value"], p.get("currency", "AUD"), rates) for p in properties)
     prop_debt = sum(to_aud(p["debt"], p.get("currency", "AUD"), rates) for p in properties)
     prop_rent = sum(to_aud(p["monthly_rent"], p.get("currency", "AUD"), rates) for p in properties)
@@ -802,7 +938,7 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
     projects = []
     my_contributions = 0.0
     loans_outstanding = 0.0
-    async for p in db.projects.find():
+    async for p in db.projects.find({"user_id": user["id"]}):
         p = doc_out(p)
         pid = p["id"]
         my_pct = next((pt.get("percentage", 0) for pt in p.get("partners", []) if pt.get("name") == "Yash"), 0)
@@ -834,23 +970,156 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
     }
 
 
+# ---------------- google auth (emergent managed) ----------------
+
+@app.post("/api/auth/google/session")
+async def google_session(data: GoogleSessionIn, response: Response):
+    try:
+        async with httpx.AsyncClient(timeout=10) as http:
+            r = await http.get(
+                "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
+                headers={"X-Session-ID": data.session_id})
+    except Exception:
+        raise HTTPException(502, "Auth provider unavailable")
+    if r.status_code != 200:
+        raise HTTPException(401, "Invalid session")
+    profile = r.json()
+    email = profile["email"].lower().strip()
+    user = await db.users.find_one({"email": email})
+    if not user:
+        is_admin = email == os.environ["ADMIN_EMAIL"].lower()
+        await db.users.insert_one({
+            "email": email, "name": profile.get("name", ""),
+            "picture": profile.get("picture", ""), "google_id": profile.get("id", ""),
+            "role": "admin" if is_admin else "user",
+            "status": "approved" if is_admin else "pending",
+            "created_at": now_utc().isoformat()})
+        user = await db.users.find_one({"email": email})
+    else:
+        await db.users.update_one({"_id": user["_id"]}, {"$set": {
+            "google_id": profile.get("id", ""), "picture": profile.get("picture", ""),
+            "name": user.get("name") or profile.get("name", "")}})
+    uid = str(user["_id"])
+    session_token = profile.get("session_token") or secrets.token_urlsafe(32)
+    await db.user_sessions.insert_one({
+        "user_id": uid, "session_token": session_token,
+        "expires_at": (now_utc() + timedelta(days=7)).isoformat(),
+        "created_at": now_utc().isoformat()})
+    response.set_cookie("session_token", session_token, httponly=True, secure=True,
+                        samesite="none", max_age=604800, path="/")
+    return {"id": uid, "email": email, "name": user.get("name") or profile.get("name", ""),
+            "picture": profile.get("picture", ""), "role": user.get("role", "user"),
+            "status": user.get("status", "pending")}
+
+
+# ---------------- admin ----------------
+
+async def require_admin(user=Depends(get_current_user)):
+    if user.get("role") != "admin":
+        raise HTTPException(403, "Admin only")
+    return user
+
+
+@app.get("/api/admin/users")
+async def admin_list_users(user=Depends(require_admin)):
+    out = []
+    async for u in db.users.find({}, {"password_hash": 0}).sort("created_at", -1):
+        out.append(doc_out(u))
+    return out
+
+
+@app.post("/api/admin/users/{uid}/status")
+async def admin_set_status(uid: str, data: StatusIn, user=Depends(require_admin)):
+    if data.status not in ("approved", "pending", "rejected"):
+        raise HTTPException(400, "Invalid status")
+    res = await db.users.update_one({"_id": ObjectId(uid)}, {"$set": {"status": data.status}})
+    if not res.matched_count:
+        raise HTTPException(404, "User not found")
+    return {"ok": True, "status": data.status}
+
+
+@app.delete("/api/admin/users/{uid}")
+async def admin_delete_user(uid: str, user=Depends(require_admin)):
+    if uid == user["id"]:
+        raise HTTPException(400, "Cannot delete your own account")
+    await db.users.delete_one({"_id": ObjectId(uid)})
+    for coll in ("projects", "contributions", "costs", "loans", "ledger",
+                 "investments", "properties", "feasibility"):
+        await db[coll].delete_many({"user_id": uid})
+    await db.user_sessions.delete_many({"user_id": uid})
+    return {"ok": True}
+
+
+# ---------------- feasibility ----------------
+
+def compute_feasibility(d: dict) -> dict:
+    contingency = d["construction_cost"] * d.get("contingency_pct", 0) / 100
+    total_cost = (d["land_cost"] + d["construction_cost"] + d["bond"] + d["council_permits"]
+                  + d["design_architect"] + d["finance_interest"] + d["legal"]
+                  + d["marketing"] + contingency + d["other_costs"])
+    revenue = d["expected_revenue"]
+    profit = revenue - total_cost
+    margin = profit / revenue * 100 if revenue > 0 else 0
+    roi = profit / total_cost * 100 if total_cost > 0 else 0
+    return {"contingency_amount": round(contingency, 2), "total_cost": round(total_cost, 2),
+            "profit": round(profit, 2), "margin_pct": round(margin, 1),
+            "roi_pct": round(roi, 1), "feasible": profit > 0 and margin >= 15}
+
+
+@app.get("/api/feasibility")
+async def list_feasibility(user=Depends(get_current_user)):
+    return [doc_out(d) async for d in db.feasibility.find({"user_id": user["id"]}).sort("created_at", -1)]
+
+
+@app.post("/api/feasibility")
+async def add_feasibility(data: FeasibilityIn, user=Depends(get_current_user)):
+    doc = data.model_dump()
+    doc["computed"] = compute_feasibility(doc)
+    doc["user_id"] = user["id"]
+    doc["created_at"] = now_utc().isoformat()
+    res = await db.feasibility.insert_one(doc)
+    return doc_out(await db.feasibility.find_one({"_id": res.inserted_id}))
+
+
+@app.delete("/api/feasibility/{fid}")
+async def delete_feasibility(fid: str, user=Depends(get_current_user)):
+    res = await db.feasibility.delete_one({"_id": ObjectId(fid), "user_id": user["id"]})
+    if not res.deleted_count:
+        raise HTTPException(404, "Study not found")
+    return {"ok": True}
+
+
 # ---------------- startup ----------------
 
 @app.on_event("startup")
 async def startup():
     await db.users.create_index("email", unique=True)
     await db.login_attempts.create_index("identifier")
+    await db.user_sessions.create_index("session_token")
     admin_email = os.environ["ADMIN_EMAIL"].lower()
     admin_password = os.environ["ADMIN_PASSWORD"]
     existing = await db.users.find_one({"email": admin_email})
     if not existing:
         await db.users.insert_one({
             "email": admin_email, "password_hash": hash_password(admin_password),
-            "name": "Yash", "role": "admin", "created_at": now_utc().isoformat()})
+            "name": "Yash", "role": "admin", "status": "approved",
+            "created_at": now_utc().isoformat()})
         log.info("Admin user seeded: %s", admin_email)
-    elif not verify_password(admin_password, existing["password_hash"]):
-        await db.users.update_one({"email": admin_email},
-                                  {"$set": {"password_hash": hash_password(admin_password)}})
+    else:
+        updates = {}
+        if not verify_password(admin_password, existing.get("password_hash", "")):
+            updates["password_hash"] = hash_password(admin_password)
+        if existing.get("role") != "admin" or existing.get("status") != "approved":
+            updates["role"] = "admin"
+            updates["status"] = "approved"
+        if updates:
+            await db.users.update_one({"email": admin_email}, {"$set": updates})
+    admin = await db.users.find_one({"email": admin_email})
+    admin_id = str(admin["_id"])
+    for coll in ("projects", "contributions", "costs", "loans", "ledger",
+                 "investments", "properties", "feasibility"):
+        await db[coll].update_many({"user_id": {"$exists": False}},
+                                   {"$set": {"user_id": admin_id}})
     await rate_service.refresh()
     asyncio.create_task(fx_loop())
 

@@ -53,6 +53,20 @@ Personal wealth & construction project finance tracker:
 - Fix: frontend/.env pointed at stale preview URL causing CORS failures — corrected and restarted
 - Fix (2026-09-06, iteration 3): login "Network Error" — axios baseURL changed to same-origin relative `/api` so API calls work from any preview/deploy hostname (ingress routes /api → backend). Verified: 0 cross-origin requests, login + PIN flow green.
 
+## Implemented (2026-09-06, iteration 4 — multi-user)
+- Google login for all (Emergent-managed OAuth): login page Google button → session_id callback → /api/auth/google/session → session_token cookie (7d, db.user_sessions); same email links to existing admin account
+- Admin backend for Yash: /admin page — list users, approve/reject/delete (delete purges all their data); pending users see "Awaiting Approval" and get 403 pending_approval on all data endpoints
+- Multi-user data isolation: user_id on every collection; all queries user-scoped; existing data migrated to admin
+- Project linking: partner entries carry optional email — matching registered users see the project with a "Shared" badge, READ-ONLY; owner-only writes (contributions/costs/loans/delete) enforced server-side
+- Projects deletable by owner (UI + backend)
+- Feasibility section (/feasibility): land, construction, bond, council/permits, design, finance/interest, legal, marketing, contingency %, other + expected revenue → live total cost, profit, margin %, ROI %, FEASIBLE verdict (profit>0, margin≥15%); savable/listable/deletable
+- Partner Ledger: Personal Debts section (direction I paid/They paid, free-text person) — separate from company pool; "Sanjay owes me $X" pairs; included in report dialog + .txt download
+- Testing: iteration_4 — 19/19 backend, 100% critical UI flows, isolation + sharing + gating verified
+
+## eToro note
+eToro has NO public API for portfolio sync. Shares holdings are entered once (symbol + qty + leverage); prices update live via Yahoo Finance (US/ASX/NSE) with Refresh Prices — functionally equivalent to live rates.
+- eToro: no public API; manual holdings + live Yahoo prices (see note above)
+
 ## Backlog
 - P1: Edit project (name/partners %) from UI; settle-up shortcut button per pair
 - P1: Editable/manual FX rate override

@@ -4,18 +4,24 @@ import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
 import { ThemeToggle } from "./ThemeToggle";
 import { Button } from "./ui/button";
-import { LayoutDashboard, HardHat, Users, TrendingUp, Building2, LogOut, Landmark } from "lucide-react";
+import { LayoutDashboard, HardHat, Users, TrendingUp, Building2, LogOut, Landmark, Calculator, ShieldCheck } from "lucide-react";
 
-const NAV = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/projects", label: "Projects", icon: HardHat },
-  { to: "/partners", label: "Partner Ledger", icon: Users },
-  { to: "/investments", label: "Investments", icon: TrendingUp },
-  { to: "/properties", label: "Properties", icon: Building2 },
-];
+function navItems(user) {
+  const items = [
+    { to: "/", label: "Dashboard", icon: LayoutDashboard },
+    { to: "/projects", label: "Projects", icon: HardHat },
+    { to: "/feasibility", label: "Feasibility", icon: Calculator },
+    { to: "/partners", label: "Partner Ledger", icon: Users },
+    { to: "/investments", label: "Investments", icon: TrendingUp },
+    { to: "/properties", label: "Properties", icon: Building2 },
+  ];
+  if (user?.role === "admin") items.push({ to: "/admin", label: "Admin", icon: ShieldCheck });
+  return items;
+}
 
 export default function Layout() {
   const { user, logout } = useAuth();
+  const NAV = navItems(user);
   const navigate = useNavigate();
   const [rates, setRates] = useState(null);
 
@@ -83,7 +89,10 @@ export default function Layout() {
           </div>
           <div className="mt-8 px-3">
             <p className="label-overline">Signed in as</p>
-            <p className="text-sm font-medium mt-1 truncate" data-testid="user-name">{user?.name || "Yash"}</p>
+            <div className="flex items-center gap-2 mt-1.5">
+              {user?.picture && <img src={user.picture} alt="" className="h-6 w-6 rounded-full" referrerPolicy="no-referrer" />}
+              <p className="text-sm font-medium truncate" data-testid="user-name">{user?.name || user?.email}</p>
+            </div>
           </div>
         </aside>
         <main className="flex-1 p-4 sm:p-6 lg:p-8 min-w-0">

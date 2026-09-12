@@ -1,0 +1,29 @@
+{
+  "summary": "Iteration 4 (multi-user) tested end-to-end. Backend: 19/19 pytest cases pass covering login role/status, admin CRUD, pending-user 403 gating, google-simulated user flow (mongosh), data isolation, project sharing via partner email + owner-only write, feasibility compute + CRUD, personal ledger separation from company pool, and regression (dashboard, shares PIN). Frontend: verified nav-admin appears immediately after email/pw login (no reload), Admin table lists Yash as admin/approved with NO delete button on own row, Feasibility live compute shows Total $1,600,000 / Profit $400,000 / Margin 20.0% / verdict 'Feasible', Personal Debts flow: 'I paid for them' Sanjay 2000 -> 'Sanjay owes me $2,000.00'; add 'They paid for me' 500 -> nets to 'Sanjay owes me $1,500.00', company settlement remains all $0 settled (unchanged), personal-txn delete works, Report dialog opens with download button. Google button on /login redirects into Emergent-managed OAuth flow (reached Google Sign-in page 'to continue to emergentagent.com'). Projects page shows delete-project-<id> for owner (MAISON 7). Regression: Dashboard net worth $452,076 AUD, MAISON 7 visible.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Feasibility live result", "issues": ["fs-verdict node concatenates label with helper hint ('Feasible' + 'Needs profit > 0 and margin ≥ 15%'). Not a functional bug — matches spec — but exact-match assertions on the testid text will read both strings."]},
+      {"screen": "Partner Ledger Report dialog", "issues": ["In-dialog view shows Company settlement + Transaction history only; personal debts appear only in the downloaded .txt (not rendered inside the dialog). Matches downloadable-report spec but users may expect on-screen personal section too."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iteration4.py", "/app/test_reports/pytest/iteration4.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py get_current_user: pending_approval gate compares request.url.path exactly to '/api/auth/me' and '/api/auth/logout' — this is fine, but consider allow-listing /api/auth/refresh too so pending users can silently refresh their session cookie without hitting 403 on refresh calls.",
+    "server.py /api/projects listing: partners.email match is case-sensitive on stored value but stored lower-cased on create/update — safe as long as user.email is also lower-cased on insert (it is in google_session; ADMIN_EMAIL lower-case seed also OK). Good.",
+    "server.py loan_metrics amortizing branch: when r == 0 and elapsed >= term, monthly = outstanding/remaining with outstanding=0 → 0/1 = 0. Fine, but keep an eye on r==0 with elapsed<term uses outstanding/remaining (linear). Non-blocking.",
+    "Partners.jsx report dialog does not render personal debts on-screen; only .txt export includes them. Consider adding a section to match user expectation.",
+    "server.py CORSMiddleware: allow_origins uses single FRONTEND_URL env fallback to localhost — with same-origin relative /api this is not exercised in preview, but should be verified for multi-preview deployments."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration4.py"],
+  "success_rate": {"backend": "100% (19/19)", "frontend": "100% of critical flows"},
+  "test_credentials": "yash.sojitra34@gmail.com / Yash@2026 ; Shares PIN 2468",
+  "seed_data_creation": "During tests: transient test users via mongosh (auth_testing.md); TEST_ prefixed feasibility studies, TEST_SHARED_PROJECT, TEST_ISO_INV investments, TEST_PERSONAL_* ledger. All cleaned up (verified with mongosh deleteMany count=1 leftover feasibility purged).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 4 verified. Auth playbook /app/auth_testing.md accurately simulates Google sessions via mongosh; use Bearer <session_token> for API tests, cookie injection for browser. Data isolation confirmed at API level — new google user starts pending and gets 403 pending_approval on /api/dashboard until admin POST /api/admin/users/{id}/status {status:'approved'}. Project sharing: add partner with matching email; shared field flag in GET /api/projects. Owner-only writes enforced on contributions/costs/loans/delete. Personal debts stored as ledger type='personal' with user_id scoping, computed via /api/ledger/personal (separate from /api/ledger/balances). Feasibility formula: total = land + construction*(1+contingency_pct/100) + bond + council + design + finance + legal + marketing + other; feasible = profit>0 AND margin>=15%.",
+  "rca of the issue": "n/a — no bugs found"
+}
