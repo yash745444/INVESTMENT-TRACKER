@@ -67,6 +67,17 @@ Personal wealth & construction project finance tracker:
 eToro has NO public API for portfolio sync. Shares holdings are entered once (symbol + qty + leverage); prices update live via Yahoo Finance (US/ASX/NSE) with Refresh Prices — functionally equivalent to live rates.
 - eToro: no public API; manual holdings + live Yahoo prices (see note above)
 
+## Implemented (2026-09-27, iteration 5)
+- Private Loans page (/loans): personal loans from private lenders — interest type (annual %, accrued = amount × rate × years) or profit-share type (linked to project; lender share = loan ÷ basis [default: my project contributions, optional override]; return = share × project final_profit; verified: $100k/$450k/$200k → 22.22% → $44,444.44)
+- Project Outcome card on project Overview (owner-only) sets final_profit driving lender returns
+- Shares: fractional quantity — input by quantity OR by total invested + buy price (qty auto-computed); P&L% vs buy price shown per row
+- Custom cursor only — OS cursor hidden on desktop (cursor:none, pointer:fine)
+- Equity by percentage: property equity uses my % from property partners; project equity = my% × (contributions + drawn − costs), shown as "My Equity" column on dashboard
+- Partner profiles: admin sees 4 partner profile cards (position, projects, personal debts) with detail dialog; non-admin linked partners (admin sets partner_name in /admin) see a self-only view — their position, their projects, their debts, no other partners
+- Feasibility v2: project types (single dwelling/duplex/multi-dwelling/subdivision + hints), 20 grouped cost fields (acquisition, approvals & design, construction, holding & finance, selling, other), loan amount → cash required, ROI on cash; FEASIBLE = profit > 0 AND ROI on cash ≥ 50%
+- Dashboard: net worth toggle With debts / Without debts + debts breakdown (property / project loans / private loans)
+- Testing: iteration_5 — 17/17 backend, 100% critical UI flows
+
 ## Backlog
 - P1: Edit project (name/partners %) from UI; settle-up shortcut button per pair
 - P1: Editable/manual FX rate override
