@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
 import { ThemeToggle } from "./ThemeToggle";
 import { Button } from "./ui/button";
-import { LayoutDashboard, HardHat, Users, TrendingUp, Building2, LogOut, Landmark, Calculator, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, HardHat, Users, TrendingUp, Building2, LogOut, Landmark, Calculator, ShieldCheck, HandCoins } from "lucide-react";
 
 function navItems(user) {
   const items = [
@@ -12,6 +12,7 @@ function navItems(user) {
     { to: "/projects", label: "Projects", icon: HardHat },
     { to: "/feasibility", label: "Feasibility", icon: Calculator },
     { to: "/partners", label: "Partner Ledger", icon: Users },
+    { to: "/loans", label: "Private Loans", icon: HandCoins },
     { to: "/investments", label: "Investments", icon: TrendingUp },
     { to: "/properties", label: "Properties", icon: Building2 },
   ];

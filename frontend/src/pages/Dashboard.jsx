@@ -14,6 +14,7 @@ export default function Dashboard() {
   const [data, setData] = useState(null);
   const [unlocked, setUnlocked] = useState(isSharesUnlocked());
   const [pinOpen, setPinOpen] = useState(false);
+  const [withDebts, setWithDebts] = useState(true);
   const navigate = useNavigate();
 
   const load = () => api.get("/dashboard").then((r) => {
@@ -26,7 +27,7 @@ export default function Dashboard() {
 
   const sharesCount = data.investments.shares_count || 0;
   const invDisplay = data.investments.total;
-  const netDisplay = data.net_worth;
+  const netDisplay = withDebts ? data.net_worth : data.net_worth_without_debts;
 
   const pie = [
     { name: "Investments", value: Math.max(0, invDisplay) },
@@ -46,10 +47,16 @@ export default function Dashboard() {
     <div className="space-y-6" data-testid="dashboard-page">
       <div>
         <p className="label-overline">Net Worth · AUD</p>
-        <div className="flex items-center gap-3 mt-1">
+        <div className="flex items-center gap-3 mt-1 flex-wrap">
           <h1 className="font-heading font-extrabold text-3xl sm:text-4xl tracking-tight">
             <span className="font-mono" data-testid="net-worth-value">{fmt(netDisplay)}</span>
           </h1>
+          <div className="flex rounded-full border border-border overflow-hidden text-xs font-mono" data-testid="networth-toggle">
+            <button onClick={() => setWithDebts(true)} data-testid="nw-with-debts"
+              className={`px-3 py-1.5 transition-colors ${withDebts ? "bg-secondary text-foreground" : "text-muted-foreground"}`}>With debts</button>
+            <button onClick={() => setWithDebts(false)} data-testid="nw-without-debts"
+              className={`px-3 py-1.5 transition-colors ${!withDebts ? "bg-secondary text-foreground" : "text-muted-foreground"}`}>Without debts</button>
+          </div>
           {!unlocked && sharesCount > 0 && (
             <button data-testid="unlock-shares-button" onClick={() => setPinOpen(true)}
               className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground border border-border rounded-full px-3 py-1.5 hover:border-gold transition-colors">
@@ -64,6 +71,11 @@ export default function Dashboard() {
           <p className="text-xs text-muted-foreground mt-1 font-mono" data-testid="fx-info">
             FX: 1 AUD = {data.rates.rates.USD?.toFixed(4)} USD · {data.rates.rates.INR?.toFixed(2)} INR
             {data.rates.stale ? " (stale)" : ""} · rates by exchangerate-api.com
+          </p>
+        )}
+        {withDebts && data.debts?.total > 0 && (
+          <p className="text-xs text-muted-foreground mt-1 font-mono" data-testid="debts-breakdown">
+            Debts: property {fmt(data.debts.property_debt)} · project loans {fmt(data.debts.project_loans)} · private loans {fmt(data.debts.personal_loans)}
           </p>
         )}
       </div>
@@ -118,6 +130,7 @@ export default function Dashboard() {
                       <th className="pb-2 pr-4">Project</th>
                       <th className="pb-2 pr-4">My %</th>
                       <th className="pb-2 pr-4">Invested</th>
+                      <th className="pb-2 pr-4">My Equity</th>
                       <th className="pb-2">Loans Outstanding</th>
                     </tr>
                   </thead>
@@ -127,6 +140,7 @@ export default function Dashboard() {
                         <td className="py-2.5 pr-4 font-sans font-medium">{p.name}</td>
                         <td className="py-2.5 pr-4">{p.my_percentage}%</td>
                         <td className="py-2.5 pr-4 text-positive">{fmt(p.my_contributions)}</td>
+                        <td className={`py-2.5 pr-4 ${p.my_equity < 0 ? "text-negative" : "text-positive"}`}>{fmt(p.my_equity)}</td>
                         <td className="py-2.5 text-muted-foreground">{fmt(p.loan_outstanding)}</td>
                       </tr>
                     ))}

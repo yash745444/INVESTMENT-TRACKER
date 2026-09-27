@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { api, apiError } from "../lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
 import { toast } from "sonner";
 import { Check, X, Trash2 } from "lucide-react";
 
@@ -11,6 +12,7 @@ export default function Admin() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [users, setUsers] = useState(null);
+  const [linkNames, setLinkNames] = useState({});
 
   const load = () => api.get("/admin/users").then((r) => setUsers(r.data)).catch((e) => {
     if (e?.response?.status === 403) navigate("/");
@@ -57,7 +59,7 @@ export default function Admin() {
               <table className="w-full text-sm" data-testid="admin-users-table">
                 <thead><tr className="text-left label-overline border-b border-border">
                   <th className="pb-2 pr-4">User</th><th className="pb-2 pr-4">Email</th>
-                  <th className="pb-2 pr-4">Role</th><th className="pb-2 pr-4">Status</th><th className="pb-2">Actions</th>
+                  <th className="pb-2 pr-4">Role</th><th className="pb-2 pr-4">Linked Partner</th><th className="pb-2 pr-4">Status</th><th className="pb-2">Actions</th>
                 </tr></thead>
                 <tbody>
                   {users.map((u) => (
@@ -70,6 +72,19 @@ export default function Admin() {
                       </td>
                       <td className="py-2.5 pr-4 font-mono text-xs">{u.email}</td>
                       <td className="py-2.5 pr-4">{u.role || "user"}</td>
+                      <td className="py-2.5 pr-4">
+                        <div className="flex gap-1.5 items-center">
+                          <Input className="h-8 w-28 text-xs" placeholder="e.g. Sanjay" data-testid={`partner-input-${u.id}`}
+                            value={linkNames[u.id] ?? u.partner_name ?? ""}
+                            onChange={(e) => setLinkNames({ ...linkNames, [u.id]: e.target.value })} />
+                          <Button size="sm" variant="ghost" data-testid={`partner-save-${u.id}`}
+                            onClick={async () => {
+                              await api.post(`/admin/users/${u.id}/partner`, { partner_name: linkNames[u.id] ?? u.partner_name ?? "" });
+                              toast.success("Partner linked");
+                              load();
+                            }}>Save</Button>
+                        </div>
+                      </td>
                       <td className="py-2.5 pr-4" data-testid={`status-badge-${u.id}`}>{badge(u.status)}</td>
                       <td className="py-2.5">
                         <div className="flex gap-1">

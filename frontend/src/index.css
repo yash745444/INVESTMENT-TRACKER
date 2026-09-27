@@ -133,3 +133,9 @@
         border-bottom-color: inherit;
     }
 }
+
+@layer base {
+    @media (pointer: fine) {
+        * { cursor: none !important; }
+    }
+}

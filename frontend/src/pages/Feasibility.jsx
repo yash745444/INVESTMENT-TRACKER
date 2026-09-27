@@ -5,36 +5,53 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { toast } from "sonner";
 import { Plus, Trash2, CheckCircle2, XCircle, Calculator } from "lucide-react";
 
-const COST_FIELDS = [
-  ["land_cost", "Land / Site Acquisition"],
-  ["construction_cost", "Construction Cost"],
-  ["bond", "Bond / Bank Guarantee"],
-  ["council_permits", "Council & Permits"],
-  ["design_architect", "Design & Architect"],
-  ["finance_interest", "Finance & Interest"],
-  ["legal", "Legal"],
-  ["marketing", "Marketing & Sales"],
-  ["other_costs", "Other Costs"],
+const PROJECT_TYPES = [
+  ["single_dwelling", "Single Dwelling"],
+  ["duplex", "Duplex"],
+  ["multi_dwelling", "Multi-Dwelling"],
+  ["subdivision", "Subdivision"],
 ];
 
-const EMPTY = { name: "", contingency_pct: 10, expected_revenue: "",
-  land_cost: "", construction_cost: "", bond: "", council_permits: "",
-  design_architect: "", finance_interest: "", legal: "", marketing: "", other_costs: "" };
+const TYPE_HINTS = {
+  single_dwelling: "Single dwelling — watch holding costs and resale comparable evidence.",
+  duplex: "Duplex — remember dual service connections and strata/subdivision costs if selling separately.",
+  multi_dwelling: "Multi-dwelling — include per-lot contributions, body corporate setup, staged selling.",
+  subdivision: "Subdivision — include surveying, plan sealing, infrastructure contributions and per-lot service connections.",
+};
+
+const FIELD_GROUPS = [
+  ["Acquisition", [["land_cost", "Land / Site"], ["stamp_duty", "Stamp Duty"], ["acquisition_legal", "Legal (purchase)"]]],
+  ["Approvals & Design", [["council_permits", "Council / DA fees & contributions"], ["design_architect", "Architect / Design"], ["engineering", "Engineering"], ["surveying", "Surveying / Titles"], ["project_management", "Project Management"]]],
+  ["Construction", [["demolition", "Demolition / Site Prep"], ["site_works", "Site Works / Services"], ["construction_cost", "Construction Cost"]]],
+  ["Holding & Finance", [["holding_costs", "Holding Costs (rates, insurance)"], ["finance_interest", "Finance / Interest"], ["bond", "Bond / Bank Guarantee"]]],
+  ["Selling", [["marketing", "Marketing"], ["agent_fees", "Agent / Selling Fees"], ["legal", "Legal (sale)"]]],
+  ["Other", [["other_costs", "Other Costs"]]],
+];
+
+const EMPTY = { name: "", project_type: "single_dwelling", contingency_pct: 10, expected_revenue: "", loan_amount: "",
+  land_cost: "", stamp_duty: "", acquisition_legal: "", council_permits: "", design_architect: "",
+  engineering: "", surveying: "", project_management: "", demolition: "", site_works: "",
+  construction_cost: "", holding_costs: "", finance_interest: "", bond: "",
+  marketing: "", agent_fees: "", legal: "", other_costs: "" };
 
 function compute(f) {
   const n = (k) => Number(f[k]) || 0;
   const contingency = n("construction_cost") * n("contingency_pct") / 100;
-  const total = n("land_cost") + n("construction_cost") + n("bond") + n("council_permits")
-    + n("design_architect") + n("finance_interest") + n("legal") + n("marketing")
-    + contingency + n("other_costs");
+  const total = n("land_cost") + n("stamp_duty") + n("acquisition_legal") + n("council_permits")
+    + n("design_architect") + n("engineering") + n("surveying") + n("project_management")
+    + n("demolition") + n("site_works") + n("construction_cost") + contingency
+    + n("holding_costs") + n("finance_interest") + n("bond") + n("marketing")
+    + n("agent_fees") + n("legal") + n("other_costs");
   const revenue = n("expected_revenue");
   const profit = revenue - total;
   const margin = revenue > 0 ? profit / revenue * 100 : 0;
-  const roi = total > 0 ? profit / total * 100 : 0;
-  return { contingency, total, profit, margin, roi, feasible: profit > 0 && margin >= 15 };
+  const cash = total - n("loan_amount");
+  const roiCash = cash > 0 ? profit / cash * 100 : 0;
+  return { contingency, total, profit, margin, cash, roiCash, feasible: profit > 0 && roiCash >= 50 };
 }
 
 export default function Feasibility() {
@@ -78,18 +95,39 @@ export default function Feasibility() {
                 <div className="space-y-1.5"><Label>Study name</Label>
                   <Input data-testid="fs-name-input" required value={form.name}
                     onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. 32-34 Cadman v1" /></div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {COST_FIELDS.map(([key, label]) => (
-                    <div key={key} className="space-y-1.5"><Label>{label}</Label>
-                      <Input data-testid={`fs-input-${key.replace(/_/g, "-")}`} type="number" step="0.01" value={form[key]}
-                        onChange={(e) => setForm({ ...form, [key]: e.target.value })} placeholder="0" /></div>
-                  ))}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5"><Label>Project type</Label>
+                    <Select value={form.project_type} onValueChange={(v) => setForm({ ...form, project_type: v })}>
+                      <SelectTrigger data-testid="fs-type-select"><SelectValue /></SelectTrigger>
+                      <SelectContent>{PROJECT_TYPES.map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
+                    </Select></div>
                   <div className="space-y-1.5"><Label>Contingency % (of construction)</Label>
                     <Input data-testid="fs-input-contingency-pct" type="number" step="0.1" value={form.contingency_pct}
                       onChange={(e) => setForm({ ...form, contingency_pct: e.target.value })} /></div>
-                  <div className="space-y-1.5"><Label>Expected Revenue (sales)</Label>
-                    <Input data-testid="fs-input-expected-revenue" type="number" step="0.01" value={form.expected_revenue}
-                      onChange={(e) => setForm({ ...form, expected_revenue: e.target.value })} placeholder="0" /></div>
+                </div>
+                <p className="text-xs text-muted-foreground" data-testid="fs-type-hint">{TYPE_HINTS[form.project_type]}</p>
+                {FIELD_GROUPS.map(([group, fields]) => (
+                  <div key={group} className="space-y-2">
+                    <p className="label-overline border-b border-border pb-1">{group}</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {fields.map(([key, label]) => (
+                        <div key={key} className="space-y-1.5"><Label>{label}</Label>
+                          <Input data-testid={`fs-input-${key.replace(/_/g, "-")}`} type="number" step="0.01" value={form[key]}
+                            onChange={(e) => setForm({ ...form, [key]: e.target.value })} placeholder="0" /></div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                <div className="space-y-2">
+                  <p className="label-overline border-b border-border pb-1">Funding & Revenue</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1.5"><Label>Loan amount (debt funding)</Label>
+                      <Input data-testid="fs-input-loan-amount" type="number" step="0.01" value={form.loan_amount}
+                        onChange={(e) => setForm({ ...form, loan_amount: e.target.value })} placeholder="0" /></div>
+                    <div className="space-y-1.5"><Label>Expected Revenue (GRV)</Label>
+                      <Input data-testid="fs-input-expected-revenue" type="number" step="0.01" value={form.expected_revenue}
+                        onChange={(e) => setForm({ ...form, expected_revenue: e.target.value })} placeholder="0" /></div>
+                  </div>
                 </div>
                 <Button data-testid="fs-save-button" type="submit" className="w-full">Save Study</Button>
               </form>
@@ -105,18 +143,22 @@ export default function Feasibility() {
                 ) : (
                   <p className="flex items-center justify-center gap-2 font-heading font-bold text-lg text-negative"><XCircle className="h-5 w-5" /> Not Feasible</p>
                 )}
-                <p className="text-xs text-muted-foreground mt-1">Needs profit &gt; 0 and margin ≥ 15%</p>
+                <p className="text-xs text-muted-foreground mt-1">Needs profit &gt; 0 and ROI on cash ≥ 50%</p>
               </div>
-              {[["Contingency", c.contingency], ["Total Cost", c.total], ["Expected Revenue", Number(form.expected_revenue) || 0], ["Profit", c.profit]].map(([l, v]) => (
+              {[["Contingency", c.contingency], ["Total Cost (TDC)", c.total], ["Loan", Number(form.loan_amount) || 0], ["Cash Required", c.cash], ["Expected Revenue", Number(form.expected_revenue) || 0], ["Profit", c.profit]].map(([l, v]) => (
                 <div key={l} className="flex justify-between text-sm">
                   <span className="text-muted-foreground">{l}</span>
                   <span className={`font-mono font-medium ${l === "Profit" ? (v >= 0 ? "text-positive" : "text-negative") : ""}`}
-                    data-testid={l === "Total Cost" ? "fs-total-cost" : l === "Profit" ? "fs-profit" : undefined}>{fmt(v)}</span>
+                    data-testid={l.startsWith("Total Cost") ? "fs-total-cost" : l === "Profit" ? "fs-profit" : l === "Cash Required" ? "fs-cash-required" : undefined}>{fmt(v)}</span>
                 </div>
               ))}
               <div className="flex justify-between text-sm border-t border-border pt-2">
-                <span className="text-muted-foreground">Margin / ROI</span>
-                <span className="font-mono font-semibold" data-testid="fs-margin">{c.margin.toFixed(1)}% / {c.roi.toFixed(1)}%</span>
+                <span className="text-muted-foreground">Margin on GRV</span>
+                <span className="font-mono font-semibold" data-testid="fs-margin">{c.margin.toFixed(1)}%</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">ROI on cash in</span>
+                <span className={`font-mono font-semibold ${c.roiCash >= 50 ? "text-positive" : "text-negative"}`} data-testid="fs-roi-cash">{c.roiCash.toFixed(1)}%</span>
               </div>
             </CardContent>
           </Card>
@@ -146,12 +188,13 @@ export default function Feasibility() {
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div><p className="label-overline">Total Cost</p><p className="font-mono">{fmt(s.computed.total_cost)}</p></div>
-                  <div><p className="label-overline">Revenue</p><p className="font-mono">{fmt(s.expected_revenue)}</p></div>
+                  <div><p className="label-overline">Cash Required</p><p className="font-mono">{s.computed.cash_in !== undefined ? fmt(s.computed.cash_in) : "—"}</p></div>
                   <div><p className="label-overline">Profit</p>
                     <p className={`font-mono font-semibold ${s.computed.profit >= 0 ? "text-positive" : "text-negative"}`}>{fmt(s.computed.profit)}</p></div>
-                  <div><p className="label-overline">Margin / ROI</p>
-                    <p className="font-mono">{s.computed.margin_pct}% / {s.computed.roi_pct}%</p></div>
+                  <div><p className="label-overline">Margin / ROI on Cash</p>
+                    <p className="font-mono">{s.computed.margin_pct}% / {s.computed.roi_cash_pct !== undefined ? s.computed.roi_cash_pct : s.computed.roi_pct}%</p></div>
                 </div>
+                <p className="text-[10px] font-mono text-muted-foreground uppercase">{PROJECT_TYPES.find(([k]) => k === s.project_type)?.[1] || "Single Dwelling"}</p>
               </CardContent>
             </Card>
           ))}

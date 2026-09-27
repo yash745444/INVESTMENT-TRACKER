@@ -27,12 +27,14 @@ export default function Partners() {
   const [pOpen, setPOpen] = useState(false);
   const [pForm, setPForm] = useState({ person: "", direction: "i_paid", amount: "", date: today(), note: "" });
   const { user } = useAuth();
+  const [overview, setOverview] = useState(null);
+  const [selectedProfile, setSelectedProfile] = useState(null);
 
   const load = async () => {
-    const [t, b, p, pd] = await Promise.all([
-      api.get("/ledger"), api.get("/ledger/balances"), api.get("/projects"), api.get("/ledger/personal"),
+    const [t, b, p, pd, ov] = await Promise.all([
+      api.get("/ledger"), api.get("/ledger/balances"), api.get("/projects"), api.get("/ledger/personal"), api.get("/partner/overview"),
     ]);
-    setTxns(t.data); setBalances(b.data); setProjects(p.data); setPersonal(pd.data.pairs);
+    setTxns(t.data); setBalances(b.data); setProjects(p.data); setPersonal(pd.data.pairs); setOverview(ov.data);
   };
   useEffect(() => { load(); }, []);
 
@@ -100,6 +102,7 @@ export default function Partners() {
     <div className="space-y-6" data-testid="partners-page">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="font-heading font-bold text-2xl sm:text-3xl tracking-tight">Partner Money Ledger</h1>
+        {overview?.scope !== "self" && (
         <div className="flex gap-2">
           <Button variant="outline" data-testid="report-button" onClick={openReport}>
             <FileText className="h-4 w-4 mr-1.5" /> Report
@@ -149,8 +152,12 @@ export default function Partners() {
             </DialogContent>
           </Dialog>
         </div>
+        )}
       </div>
 
+      {overview?.scope === "self" ? (
+        <PartnerSelfView overview={overview} />
+      ) : (<>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {PARTNERS.map((p) => (
           <Card key={p} data-testid={`partner-total-${p.toLowerCase()}`}>
@@ -166,6 +173,27 @@ export default function Partners() {
           </Card>
         ))}
       </div>
+
+      {overview?.scope === "all" && (
+        <Card data-testid="partner-profiles-card">
+          <CardHeader><CardTitle className="font-heading text-lg">Partner Profiles</CardTitle></CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {overview.profiles.map((pr) => (
+                <button key={pr.name} data-testid={`profile-card-${pr.name.toLowerCase()}`}
+                  onClick={() => setSelectedProfile(pr)}
+                  className="text-left rounded-lg border border-border p-4 space-y-2 card-hover">
+                  <p className="font-heading font-semibold">{pr.name}{pr.name === "Yash" && <span className="text-xs text-gold ml-1.5">(You)</span>}</p>
+                  <p className="font-mono text-xs text-muted-foreground">{pr.projects.length} project{pr.projects.length !== 1 ? "s" : ""}</p>
+                  <p className={`font-mono text-sm font-semibold ${pr.position < 0 ? "text-negative" : "text-positive"}`}>
+                    {Math.abs(pr.position) < 0.005 ? "Settled" : pr.position > 0 ? `Take ${fmt(pr.position)}` : `Pay ${fmt(-pr.position)}`}
+                  </p>
+                </button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card data-testid="pairwise-card">
         <CardHeader><CardTitle className="font-heading text-lg">Company Settlement</CardTitle></CardHeader>
@@ -193,6 +221,7 @@ export default function Partners() {
           <p className="text-xs text-muted-foreground mt-3">The 4 partners operate as one company pool — settle with the company, not with each other.</p>
         </CardContent>
       </Card>
+      </>)}
 
       <Card data-testid="personal-debts-card">
         <CardHeader className="flex-row items-center justify-between space-y-0">
@@ -270,6 +299,7 @@ export default function Partners() {
         </CardContent>
       </Card>
 
+      {overview?.scope !== "self" && (
       <Card data-testid="transactions-card">
         <CardHeader><CardTitle className="font-heading text-lg">All Transactions</CardTitle></CardHeader>
         <CardContent>
@@ -306,6 +336,41 @@ export default function Partners() {
           )}
         </CardContent>
       </Card>
+      )}
+
+      <Dialog open={!!selectedProfile} onOpenChange={() => setSelectedProfile(null)}>
+        <DialogContent data-testid="profile-dialog">
+          <DialogHeader><DialogTitle className="font-heading">{selectedProfile?.name} — Profile</DialogTitle></DialogHeader>
+          {selectedProfile && (
+            <div className="space-y-4">
+              <div>
+                <p className="label-overline mb-1.5">Company position</p>
+                <p className={`font-mono text-sm font-semibold ${selectedProfile.position < 0 ? "text-negative" : "text-positive"}`} data-testid="profile-position">
+                  {Math.abs(selectedProfile.position) < 0.005 ? "Settled" : selectedProfile.position > 0 ? `Take from Company ${fmt2(selectedProfile.position)}` : `Pay to Company ${fmt2(-selectedProfile.position)}`}
+                </p>
+              </div>
+              <div>
+                <p className="label-overline mb-1.5">Projects</p>
+                {selectedProfile.projects.length === 0 ? <p className="text-sm text-muted-foreground">No projects.</p> :
+                  selectedProfile.projects.map((p) => (
+                    <p key={p.id} className="text-sm font-mono" data-testid={`profile-project-${p.id}`}>
+                      {p.name} · {p.percentage}% · invested {fmt2(p.contributed)}
+                    </p>
+                  ))}
+              </div>
+              <div>
+                <p className="label-overline mb-1.5">Personal debts</p>
+                {selectedProfile.personal.length === 0 ? <p className="text-sm text-muted-foreground">None.</p> :
+                  selectedProfile.personal.map((pd) => (
+                    <p key={`${pd.debtor}-${pd.creditor}`} className="text-sm font-mono">
+                      {pd.debtor} owes {pd.creditor} {fmt2(pd.amount)}
+                    </p>
+                  ))}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={reportOpen} onOpenChange={setReportOpen}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto" data-testid="report-dialog">
@@ -349,6 +414,47 @@ export default function Partners() {
           )}
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function PartnerSelfView({ overview }) {
+  const pos = overview.position || 0;
+  return (
+    <div className="space-y-5" data-testid="partner-self-view">
+      <Card>
+        <CardHeader><CardTitle className="font-heading text-lg">My Company Position</CardTitle></CardHeader>
+        <CardContent>
+          <p className={`font-mono font-semibold text-2xl ${pos < 0 ? "text-negative" : "text-positive"}`} data-testid="self-position">
+            {Math.abs(pos) < 0.005 ? "All settled" : pos > 0 ? `Take from Company ${fmt(pos)}` : `Pay to Company ${fmt(-pos)}`}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">Your position in the company pool managed by Yash. Other partners' positions are private.</p>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader><CardTitle className="font-heading text-lg">My Projects</CardTitle></CardHeader>
+        <CardContent className="space-y-2">
+          {overview.projects.length === 0 && <p className="text-sm text-muted-foreground">No projects linked to you yet.</p>}
+          {overview.projects.map((p) => (
+            <div key={p.id} className="flex justify-between text-sm border-b border-border/50 pb-2 last:border-0" data-testid={`self-project-${p.id}`}>
+              <span className="font-medium">{p.name}</span>
+              <span className="font-mono">{p.percentage}% · invested {fmt2(p.contributed)}</span>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+      {overview.personal.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle className="font-heading text-lg">Personal Debts</CardTitle></CardHeader>
+          <CardContent className="space-y-1.5">
+            {overview.personal.map((pd) => (
+              <p key={`${pd.debtor}-${pd.creditor}`} className="text-sm font-mono" data-testid={`self-personal-${pd.debtor.toLowerCase()}`}>
+                {pd.debtor} owes {pd.creditor} {fmt2(pd.amount)}
+              </p>
+            ))}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

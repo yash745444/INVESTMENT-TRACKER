@@ -20,7 +20,7 @@ const TYPES = [
   { key: "other", label: "Other Investments" },
 ];
 
-const EMPTY = { type: "shares", name: "", currency: "AUD", amount: "", date: "", notes: "", symbol: "", quantity: "", leverage: 1, current_price: "", price_currency: "" };
+const EMPTY = { type: "shares", name: "", currency: "AUD", amount: "", date: "", notes: "", symbol: "", quantity: "", leverage: 1, current_price: "", price_currency: "", buy_price: "", qty_mode: "quantity", invested_amount: "" };
 
 export default function Investments() {
   const [items, setItems] = useState(null);
@@ -49,14 +49,20 @@ export default function Investments() {
   const submit = async (e) => {
     e.preventDefault();
     try {
+      const qty = form.type === "shares"
+        ? (form.qty_mode === "amount" && Number(form.buy_price) > 0
+            ? Number(form.invested_amount) / Number(form.buy_price)
+            : Number(form.quantity) || 0)
+        : 0;
       const payload = {
         ...form,
         amount: form.type === "shares" && form.symbol
-          ? (Number(form.quantity) || 0) * (Number(form.current_price) || 0)
+          ? qty * (Number(form.current_price) || 0)
           : Number(form.amount),
-        quantity: Number(form.quantity) || 0,
+        quantity: qty,
         leverage: Number(form.leverage) || 1,
         current_price: Number(form.current_price) || 0,
+        buy_price: Number(form.buy_price) || 0,
       };
       if (editing) await api.put(`/investments/${editing}`, payload);
       else await api.post("/investments", payload);
@@ -68,6 +74,9 @@ export default function Investments() {
 
   const totalAud = items?.reduce((s, i) => s + toAud(worthOf(i), worthCur(i)), 0) || 0;
   const sharesCount = items?.filter((i) => i.type === "shares").length || 0;
+  const effectiveQty = form.qty_mode === "amount" && Number(form.buy_price) > 0
+    ? (Number(form.invested_amount) || 0) / Number(form.buy_price)
+    : Number(form.quantity) || 0;
 
   const onSearchChange = (v) => {
     setSearchQ(v);
@@ -188,16 +197,41 @@ export default function Investments() {
                 <Input data-testid="inv-name-input" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Apple shares / TAL Term Life" /></div>
 
               {form.type === "shares" ? (
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="space-y-1.5"><Label>Quantity</Label>
-                    <Input data-testid="inv-quantity-input" type="number" step="any" required value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} /></div>
-                  <div className="space-y-1.5"><Label>Price</Label>
-                    <Input data-testid="inv-price-input" type="number" step="any" required value={form.current_price} onChange={(e) => setForm({ ...form, current_price: e.target.value })} /></div>
-                  <div className="space-y-1.5"><Label>Currency</Label>
-                    <Select value={form.price_currency || form.currency} onValueChange={(v) => setForm({ ...form, price_currency: v, currency: v })}>
-                      <SelectTrigger data-testid="inv-price-currency-select"><SelectValue /></SelectTrigger>
-                      <SelectContent>{CURRENCIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
-                    </Select></div>
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5"><Label>Buy price / share</Label>
+                      <Input data-testid="inv-buy-price-input" type="number" step="any" value={form.buy_price}
+                        onChange={(e) => setForm({ ...form, buy_price: e.target.value })} placeholder="What you paid" /></div>
+                    <div className="space-y-1.5"><Label>Input mode</Label>
+                      <Select value={form.qty_mode} onValueChange={(v) => setForm({ ...form, qty_mode: v })}>
+                        <SelectTrigger data-testid="inv-qty-mode-select"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="quantity">By quantity</SelectItem>
+                          <SelectItem value="amount">By total amount</SelectItem>
+                        </SelectContent>
+                      </Select></div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    {form.qty_mode === "quantity" ? (
+                      <div className="space-y-1.5"><Label>Quantity (fractions ok)</Label>
+                        <Input data-testid="inv-quantity-input" type="number" step="any" required value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} /></div>
+                    ) : (
+                      <div className="space-y-1.5"><Label>Total invested</Label>
+                        <Input data-testid="inv-invested-input" type="number" step="any" required value={form.invested_amount} onChange={(e) => setForm({ ...form, invested_amount: e.target.value })} /></div>
+                    )}
+                    <div className="space-y-1.5"><Label>Current price</Label>
+                      <Input data-testid="inv-price-input" type="number" step="any" required value={form.current_price} onChange={(e) => setForm({ ...form, current_price: e.target.value })} /></div>
+                    <div className="space-y-1.5"><Label>Currency</Label>
+                      <Select value={form.price_currency || form.currency} onValueChange={(v) => setForm({ ...form, price_currency: v, currency: v })}>
+                        <SelectTrigger data-testid="inv-price-currency-select"><SelectValue /></SelectTrigger>
+                        <SelectContent>{CURRENCIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+                      </Select></div>
+                  </div>
+                  {form.qty_mode === "amount" && Number(form.invested_amount) > 0 && Number(form.buy_price) > 0 && (
+                    <p className="text-xs font-mono text-muted-foreground" data-testid="inv-qty-preview">
+                      = {((Number(form.invested_amount) || 0) / Number(form.buy_price)).toFixed(4)} shares
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-1.5"><Label>Current value</Label>
@@ -205,10 +239,10 @@ export default function Investments() {
               )}
               <div className="space-y-1.5"><Label>Date</Label>
                 <DatePicker testid="inv-date-input" value={form.date} onChange={(v) => setForm({ ...form, date: v })} /></div>
-              {form.type === "shares" && form.quantity && form.current_price ? (
+              {form.type === "shares" && effectiveQty > 0 && Number(form.current_price) > 0 ? (
                 <p className="text-xs font-mono text-muted-foreground" data-testid="inv-worth-preview">
-                  Worth: {fmt2((Number(form.quantity) || 0) * (Number(form.current_price) || 0), form.price_currency || form.currency)}
-                  {Number(form.leverage) > 1 && ` · Exposure ×${form.leverage}: ${fmt2((Number(form.quantity) || 0) * (Number(form.current_price) || 0) * form.leverage, form.price_currency || form.currency)}`}
+                  Worth: {fmt2(effectiveQty * Number(form.current_price), form.price_currency || form.currency)}
+                  {Number(form.leverage) > 1 && ` · Exposure ×${form.leverage}: ${fmt2(effectiveQty * Number(form.current_price) * form.leverage, form.price_currency || form.currency)}`}
                 </p>
               ) : null}
               <div className="space-y-1.5"><Label>Notes</Label>
@@ -258,7 +292,7 @@ export default function Investments() {
                             </p>
                             <p className="font-mono text-xs text-muted-foreground mt-0.5">
                               {i.type === "shares" && i.symbol
-                                ? `${i.symbol} · ${i.quantity} × ${fmt2(i.current_price, i.price_currency || i.currency)} = ${fmt2(worthOf(i), worthCur(i))}${worthCur(i) !== "AUD" ? ` ≈ ${fmt(toAud(worthOf(i), worthCur(i)))}` : ""}`
+                                ? `${i.symbol} · ${Number(i.quantity).toFixed(4).replace(/\.?0+$/, "")} × ${fmt2(i.current_price, i.price_currency || i.currency)} = ${fmt2(worthOf(i), worthCur(i))}${worthCur(i) !== "AUD" ? ` ≈ ${fmt(toAud(worthOf(i), worthCur(i)))}` : ""}${i.buy_price ? ` · P&L ${(((i.current_price - i.buy_price) / i.buy_price) * 100).toFixed(1)}%` : ""}`
                                 : `${fmt2(i.amount, i.currency)}${i.currency !== "AUD" ? ` ≈ ${fmt(toAud(i.amount, i.currency))}` : ""}`}
                             </p>
                           </div>

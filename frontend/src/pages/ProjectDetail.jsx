@@ -22,6 +22,7 @@ export default function ProjectDetail() {
   const [contributions, setContributions] = useState([]);
   const [costs, setCosts] = useState([]);
   const [loans, setLoans] = useState([]);
+  const [profit, setProfit] = useState("");
 
   const load = async () => {
     try {
@@ -32,9 +33,18 @@ export default function ProjectDetail() {
         api.get(`/projects/${id}/loans`),
       ]);
       setProject(p.data); setContributions(c.data); setCosts(co.data); setLoans(l.data);
+      setProfit(p.data.final_profit || "");
     } catch { toast.error("Failed to load project"); }
   };
   useEffect(() => { load(); }, [id]);
+
+  const saveProfit = async () => {
+    try {
+      await api.post(`/projects/${id}/profit`, { final_profit: Number(profit) || 0 });
+      toast.success("Project outcome saved");
+      load();
+    } catch (err) { toast.error(apiError(err)); }
+  };
 
   if (!project) return <div className="text-muted-foreground">Loading…</div>;
 
@@ -86,7 +96,7 @@ export default function ProjectDetail() {
         </TabsList>
 
         <TabsContent value="overview" className="mt-5">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
             <Card data-testid="overview-partners-card">
               <CardHeader><CardTitle className="font-heading text-lg">Ownership Split</CardTitle></CardHeader>
               <CardContent className="space-y-3">
@@ -117,6 +127,21 @@ export default function ProjectDetail() {
                     <span className="font-mono text-sm text-negative">{fmt(l.metrics.outstanding)}</span>
                   </div>
                 ))}
+              </CardContent>
+            </Card>
+            <Card data-testid="overview-outcome-card">
+              <CardHeader><CardTitle className="font-heading text-lg">Project Outcome</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-xs text-muted-foreground">Final profit (my share) when the project settles — drives profit-share lender returns in Private Loans.</p>
+                {readOnly ? (
+                  <p className="font-mono font-semibold text-lg" data-testid="final-profit-value">{fmt(project.final_profit || 0)}</p>
+                ) : (
+                  <div className="flex gap-2">
+                    <Input data-testid="final-profit-input" type="number" step="0.01" value={profit}
+                      onChange={(e) => setProfit(e.target.value)} placeholder="0" />
+                    <Button data-testid="final-profit-save" onClick={saveProfit} size="sm">Save</Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>

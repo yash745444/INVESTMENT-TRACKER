@@ -200,7 +200,8 @@ class ProjectIn(BaseModel):
     address: Optional[str] = ""
     description: Optional[str] = ""
     status: Optional[str] = "active"
-    partners: List[dict] = []  # [{name, percentage}]
+    partners: List[dict] = []  # [{name, percentage, email?}]
+    final_profit: float = 0  # owner's share of project profit when finished
 
 
 class ContributionIn(BaseModel):
@@ -247,17 +248,47 @@ class LedgerIn(BaseModel):
 
 class FeasibilityIn(BaseModel):
     name: str
+    project_type: str = "single_dwelling"  # single_dwelling | duplex | multi_dwelling | subdivision
     land_cost: float = 0
-    construction_cost: float = 0
-    bond: float = 0
+    stamp_duty: float = 0
+    acquisition_legal: float = 0
     council_permits: float = 0
     design_architect: float = 0
-    finance_interest: float = 0
-    legal: float = 0
-    marketing: float = 0
+    engineering: float = 0
+    surveying: float = 0
+    project_management: float = 0
+    demolition: float = 0
+    site_works: float = 0
+    construction_cost: float = 0
     contingency_pct: float = 10
+    holding_costs: float = 0
+    finance_interest: float = 0
+    bond: float = 0
+    marketing: float = 0
+    agent_fees: float = 0
+    legal: float = 0
     other_costs: float = 0
+    loan_amount: float = 0
     expected_revenue: float = 0
+
+
+class PersonalLoanIn(BaseModel):
+    lender: str
+    amount: float
+    date: str
+    type: str  # interest | profit_share
+    annual_rate: Optional[float] = 0       # interest type only
+    project_id: Optional[str] = None       # profit_share type
+    basis_amount: Optional[float] = 0      # profit_share override; defaults to my contributions in project
+    notes: Optional[str] = ""
+
+
+class ProfitIn(BaseModel):
+    final_profit: float
+
+
+class PartnerLinkIn(BaseModel):
+    partner_name: str
 
 
 class GoogleSessionIn(BaseModel):
@@ -280,6 +311,7 @@ class InvestmentIn(BaseModel):
     leverage: Optional[float] = 1
     current_price: Optional[float] = 0
     price_currency: Optional[str] = ""
+    buy_price: Optional[float] = 0
 
 
 class PropertyIn(BaseModel):
@@ -669,9 +701,8 @@ def pairwise_balances(txns) -> dict:
     return net
 
 
-@app.get("/api/ledger/balances")
-async def ledger_balances(user=Depends(get_current_user)):
-    txns = [t async for t in db.ledger.find({"user_id": user["id"], "type": {"$ne": "personal"}})]
+async def _ledger_balances_for(user_id: str) -> dict:
+    txns = [t async for t in db.ledger.find({"user_id": user_id, "type": {"$ne": "personal"}})]
     net = pairwise_balances(txns)
     pairs = []
     seen = set()
@@ -698,9 +729,8 @@ async def ledger_balances(user=Depends(get_current_user)):
     return {"pairs": pairs, "totals": {k: round(v, 2) for k, v in totals.items()}}
 
 
-@app.get("/api/ledger/personal")
-async def personal_balances(user=Depends(get_current_user)):
-    txns = [t async for t in db.ledger.find({"user_id": user["id"], "type": "personal"})]
+async def _personal_pairs_for(user_id: str) -> list:
+    txns = [t async for t in db.ledger.find({"user_id": user_id, "type": "personal"})]
     net = pairwise_balances(txns)
     names = set()
     for t in txns:
@@ -716,17 +746,27 @@ async def personal_balances(user=Depends(get_current_user)):
             if abs(n) > 0.005:
                 debtor, creditor = (b, a) if n > 0 else (a, b)
                 pairs.append({"debtor": debtor, "creditor": creditor, "amount": round(abs(n), 2)})
-    return {"pairs": pairs, "me": user.get("name", "")}
+    return pairs
+
+
+@app.get("/api/ledger/balances")
+async def ledger_balances(user=Depends(get_current_user)):
+    return await _ledger_balances_for(user["id"])
+
+
+@app.get("/api/ledger/personal")
+async def personal_balances(user=Depends(get_current_user)):
+    return {"pairs": await _personal_pairs_for(user["id"]), "me": user.get("name", "")}
 
 
 @app.get("/api/ledger/report")
 async def ledger_report(user=Depends(get_current_user)):
     txns = [doc_out(t) async for t in db.ledger.find({"user_id": user["id"], "type": {"$ne": "personal"}}).sort("date", 1)]
     personal = [doc_out(t) async for t in db.ledger.find({"user_id": user["id"], "type": "personal"}).sort("date", 1)]
-    bal = await ledger_balances(user)
-    per = await personal_balances(user)
+    bal = await _ledger_balances_for(user["id"])
+    per_pairs = await _personal_pairs_for(user["id"])
     return {"transactions": txns, "personal_transactions": personal, "balances": bal,
-            "personal": per, "partners": PARTNERS,
+            "personal": {"pairs": per_pairs, "me": user.get("name", "")}, "partners": PARTNERS,
             "generated_at": now_utc().isoformat()}
 
 
@@ -798,6 +838,145 @@ async def delete_property(pid: str, user=Depends(get_current_user)):
     if not res.deleted_count:
         raise HTTPException(404, "Property not found")
     return {"ok": True}
+
+
+async def require_admin(user=Depends(get_current_user)):
+    if user.get("role") != "admin":
+        raise HTTPException(403, "Admin only")
+    return user
+
+
+# ---------------- personal loans (private lenders) ----------------
+
+async def personal_loan_metrics(loan: dict, user: dict) -> dict:
+    amount = loan.get("amount", 0)
+    if loan.get("type") == "profit_share":
+        my_name = user.get("partner_name") or user.get("name") or "Yash"
+        basis = loan.get("basis_amount") or 0
+        profit = 0.0
+        project_name = loan.get("project_name", "")
+        if loan.get("project_id"):
+            try:
+                proj = await db.projects.find_one({"_id": ObjectId(loan["project_id"])})
+            except Exception:
+                proj = None
+            if proj:
+                profit = proj.get("final_profit", 0) or 0
+                project_name = proj.get("name", project_name)
+                if not basis:
+                    async for c in db.contributions.find({"project_id": loan["project_id"], "partner": my_name}):
+                        basis += c["amount"]
+        share = amount / basis if basis > 0 else 0
+        ret = profit * share
+        return {"basis": round(basis, 2), "share_pct": round(share * 100, 2),
+                "project_profit": round(profit, 2), "return_amount": round(ret, 2),
+                "total_owed": round(amount + ret, 2), "project_name": project_name}
+    years = 0.0
+    try:
+        start = datetime.fromisoformat(str(loan["date"])).replace(tzinfo=timezone.utc)
+        years = max(0.0, (now_utc() - start).days / 365.25)
+    except Exception:
+        pass
+    accrued = amount * (loan.get("annual_rate", 0) or 0) / 100 * years
+    return {"years": round(years, 2), "accrued_interest": round(accrued, 2),
+            "return_amount": round(accrued, 2), "total_owed": round(amount + accrued, 2)}
+
+
+@app.get("/api/personal-loans")
+async def list_personal_loans(user=Depends(get_current_user)):
+    out = []
+    async for d in db.personal_loans.find({"user_id": user["id"]}).sort("created_at", -1):
+        d = doc_out(d)
+        d["computed"] = await personal_loan_metrics(d, user)
+        out.append(d)
+    return out
+
+
+@app.post("/api/personal-loans")
+async def add_personal_loan(data: PersonalLoanIn, user=Depends(get_current_user)):
+    if data.type not in ("interest", "profit_share"):
+        raise HTTPException(400, "type must be interest or profit_share")
+    if data.type == "profit_share" and not (data.project_id or data.basis_amount):
+        raise HTTPException(400, "Profit-share loans need a linked project or a basis amount")
+    doc = data.model_dump()
+    if data.project_id:
+        proj = await db.projects.find_one({"_id": ObjectId(data.project_id)})
+        if proj:
+            doc["project_name"] = proj.get("name", "")
+    doc["user_id"] = user["id"]
+    doc["created_at"] = now_utc().isoformat()
+    res = await db.personal_loans.insert_one(doc)
+    d = doc_out(await db.personal_loans.find_one({"_id": res.inserted_id}))
+    d["computed"] = await personal_loan_metrics(d, user)
+    return d
+
+
+@app.delete("/api/personal-loans/{lid}")
+async def delete_personal_loan(lid: str, user=Depends(get_current_user)):
+    res = await db.personal_loans.delete_one({"_id": ObjectId(lid), "user_id": user["id"]})
+    if not res.deleted_count:
+        raise HTTPException(404, "Loan not found")
+    return {"ok": True}
+
+
+@app.post("/api/projects/{pid}/profit")
+async def set_project_profit(pid: str, data: ProfitIn, user=Depends(get_current_user)):
+    p = await get_project_access(pid, user)
+    if p.get("user_id") != user["id"]:
+        raise HTTPException(403, "Only the project owner can set the outcome")
+    await db.projects.update_one({"_id": ObjectId(pid)}, {"$set": {"final_profit": data.final_profit}})
+    return {"ok": True, "final_profit": data.final_profit}
+
+
+# ---------------- partner profiles ----------------
+
+@app.post("/api/admin/users/{uid}/partner")
+async def admin_link_partner(uid: str, data: PartnerLinkIn, user=Depends(require_admin)):
+    res = await db.users.update_one({"_id": ObjectId(uid)},
+                                    {"$set": {"partner_name": data.partner_name.strip()}})
+    if not res.matched_count:
+        raise HTTPException(404, "User not found")
+    return {"ok": True}
+
+
+async def _partner_projects(books_uid: str, name: str) -> list:
+    projects = []
+    async for p in db.projects.find({"user_id": books_uid, "partners.name": name}):
+        pid = str(p["_id"])
+        pct = next((pt.get("percentage", 0) for pt in p.get("partners", []) if pt.get("name") == name), 0)
+        contrib = 0.0
+        async for c in db.contributions.find({"project_id": pid, "partner": name}):
+            contrib += c["amount"]
+        projects.append({"id": pid, "name": p["name"], "percentage": pct,
+                         "contributed": round(contrib, 2)})
+    return projects
+
+
+@app.get("/api/partner/overview")
+async def partner_overview(user=Depends(get_current_user)):
+    if user.get("role") == "admin":
+        bal = await _ledger_balances_for(user["id"])
+        personal = await _personal_pairs_for(user["id"])
+        profiles = []
+        for name in PARTNERS:
+            profiles.append({
+                "name": name,
+                "position": bal["totals"].get(name, 0),
+                "personal": [pr for pr in personal if name in (pr["debtor"], pr["creditor"])],
+                "projects": await _partner_projects(user["id"], name),
+            })
+        return {"scope": "all", "profiles": profiles}
+    me = user.get("partner_name") or user.get("name")
+    admin = await db.users.find_one({"role": "admin"})
+    if not admin:
+        raise HTTPException(404, "No company admin found")
+    books_uid = str(admin["_id"])
+    bal = await _ledger_balances_for(books_uid)
+    personal = await _personal_pairs_for(books_uid)
+    return {"scope": "self", "me": me,
+            "position": bal["totals"].get(me, 0),
+            "personal": [pr for pr in personal if me in (pr["debtor"], pr["creditor"])],
+            "projects": await _partner_projects(books_uid, me)}
 
 
 # ---------------- market data (yfinance) ----------------
@@ -914,6 +1093,7 @@ def investment_worth_aud(inv, rates):
 async def dashboard(request: Request, user=Depends(get_current_user)):
     rates_data = await rate_service.get()
     rates = rates_data["rates"]
+    my_name = user.get("partner_name") or user.get("name") or "Yash"
 
     investments = [doc_out(d) async for d in db.investments.find({"user_id": user["id"]})]
     worths = [investment_worth_aud(i, rates) for i in investments]
@@ -931,40 +1111,76 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
         inv_by_type.pop("shares", None)
 
     properties = [doc_out(d) async for d in db.properties.find({"user_id": user["id"]})]
-    prop_value = sum(to_aud(p["current_value"], p.get("currency", "AUD"), rates) for p in properties)
-    prop_debt = sum(to_aud(p["debt"], p.get("currency", "AUD"), rates) for p in properties)
-    prop_rent = sum(to_aud(p["monthly_rent"], p.get("currency", "AUD"), rates) for p in properties)
+    prop_value_mine = 0.0
+    prop_debt_mine = 0.0
+    prop_rent = 0.0
+    for p in properties:
+        pct = next((pt.get("percentage", 0) for pt in p.get("partners", []) if pt.get("name") == my_name), None)
+        share = pct / 100 if pct is not None else 1.0
+        prop_value_mine += to_aud(p["current_value"], p.get("currency", "AUD"), rates) * share
+        prop_debt_mine += to_aud(p["debt"], p.get("currency", "AUD"), rates) * share
+        prop_rent += to_aud(p["monthly_rent"], p.get("currency", "AUD"), rates) * share
 
     projects = []
     my_contributions = 0.0
     loans_outstanding = 0.0
+    my_equity_total = 0.0
+    my_loan_share_total = 0.0
     async for p in db.projects.find({"user_id": user["id"]}):
         p = doc_out(p)
         pid = p["id"]
-        my_pct = next((pt.get("percentage", 0) for pt in p.get("partners", []) if pt.get("name") == "Yash"), 0)
-        contrib = 0.0
-        async for c in db.contributions.find({"project_id": pid, "partner": "Yash"}):
-            contrib += c["amount"]
+        my_pct = next((pt.get("percentage", 0) for pt in p.get("partners", []) if pt.get("name") == my_name), 0)
+        contrib_mine = 0.0
+        total_contrib = 0.0
+        async for c in db.contributions.find({"project_id": pid}):
+            total_contrib += c["amount"]
+            if c.get("partner") == my_name:
+                contrib_mine += c["amount"]
+        total_costs = 0.0
+        async for c in db.costs.find({"project_id": pid}):
+            total_costs += c["amount"]
+        drawn = 0.0
         outstanding = 0.0
         async for l in db.loans.find({"project_id": pid}):
-            outstanding += loan_metrics(l)["outstanding"]
-        my_contributions += contrib
+            m = loan_metrics(l)
+            drawn += m["drawn"]
+            outstanding += m["outstanding"]
+        net_position = total_contrib + drawn - total_costs
+        my_equity = net_position * my_pct / 100
+        my_loan_share = outstanding * my_pct / 100
+        my_contributions += contrib_mine
         loans_outstanding += outstanding
+        my_equity_total += my_equity
+        my_loan_share_total += my_loan_share
         projects.append({"id": pid, "name": p["name"], "my_percentage": my_pct,
-                         "my_contributions": contrib, "loan_outstanding": outstanding})
+                         "my_contributions": contrib_mine, "my_equity": round(my_equity, 2),
+                         "loan_outstanding": outstanding, "my_loan_share": round(my_loan_share, 2),
+                         "final_profit": p.get("final_profit", 0)})
+
+    pl_total = 0.0
+    async for l in db.personal_loans.find({"user_id": user["id"]}):
+        m = await personal_loan_metrics(l, user)
+        pl_total += m["total_owed"]
 
     bal = await ledger_balances(user)
-    ledger_net = bal["totals"].get("Yash", 0.0)
+    ledger_net = bal["totals"].get(my_name, bal["totals"].get("Yash", 0.0))
 
-    net_worth = inv_total + (prop_value - prop_debt) + my_contributions + ledger_net
+    gross = inv_total + prop_value_mine + my_equity_total + ledger_net
+    debts = prop_debt_mine + my_loan_share_total + pl_total
+    net_worth = gross - debts
     return {
         "net_worth": round(net_worth, 2),
+        "net_worth_without_debts": round(gross, 2),
+        "debts": {"property_debt": round(prop_debt_mine, 2),
+                  "project_loans": round(my_loan_share_total, 2),
+                  "personal_loans": round(pl_total, 2), "total": round(debts, 2)},
         "investments": {"total": round(inv_total, 2), "by_type": inv_by_type,
                         "shares_total": round(shares_total, 2), "shares_count": shares_count},
-        "properties": {"value": round(prop_value, 2), "debt": round(prop_debt, 2),
-                       "equity": round(prop_value - prop_debt, 2), "monthly_rent": round(prop_rent, 2)},
+        "properties": {"value": round(prop_value_mine, 2), "debt": round(prop_debt_mine, 2),
+                       "equity": round(prop_value_mine - prop_debt_mine, 2), "monthly_rent": round(prop_rent, 2)},
         "projects": {"list": projects, "my_contributions": round(my_contributions, 2),
-                     "loans_outstanding": round(loans_outstanding, 2)},
+                     "loans_outstanding": round(loans_outstanding, 2),
+                     "my_equity": round(my_equity_total, 2), "my_loan_share": round(my_loan_share_total, 2)},
         "ledger_net": round(ledger_net, 2),
         "rates": rates_data,
     }
@@ -1014,12 +1230,6 @@ async def google_session(data: GoogleSessionIn, response: Response):
 
 # ---------------- admin ----------------
 
-async def require_admin(user=Depends(get_current_user)):
-    if user.get("role") != "admin":
-        raise HTTPException(403, "Admin only")
-    return user
-
-
 @app.get("/api/admin/users")
 async def admin_list_users(user=Depends(require_admin)):
     out = []
@@ -1054,16 +1264,22 @@ async def admin_delete_user(uid: str, user=Depends(require_admin)):
 
 def compute_feasibility(d: dict) -> dict:
     contingency = d["construction_cost"] * d.get("contingency_pct", 0) / 100
-    total_cost = (d["land_cost"] + d["construction_cost"] + d["bond"] + d["council_permits"]
-                  + d["design_architect"] + d["finance_interest"] + d["legal"]
-                  + d["marketing"] + contingency + d["other_costs"])
+    total_cost = (d["land_cost"] + d["stamp_duty"] + d["acquisition_legal"]
+                  + d["council_permits"] + d["design_architect"] + d["engineering"]
+                  + d["surveying"] + d["project_management"] + d["demolition"] + d["site_works"]
+                  + d["construction_cost"] + contingency + d["holding_costs"] + d["finance_interest"]
+                  + d["bond"] + d["marketing"] + d["agent_fees"] + d["legal"] + d["other_costs"])
     revenue = d["expected_revenue"]
     profit = revenue - total_cost
     margin = profit / revenue * 100 if revenue > 0 else 0
-    roi = profit / total_cost * 100 if total_cost > 0 else 0
+    cash_in = total_cost - d.get("loan_amount", 0)
+    roi_cash = profit / cash_in * 100 if cash_in > 0 else 0
+    roi_cost = profit / total_cost * 100 if total_cost > 0 else 0
     return {"contingency_amount": round(contingency, 2), "total_cost": round(total_cost, 2),
-            "profit": round(profit, 2), "margin_pct": round(margin, 1),
-            "roi_pct": round(roi, 1), "feasible": profit > 0 and margin >= 15}
+            "cash_in": round(cash_in, 2), "profit": round(profit, 2),
+            "margin_pct": round(margin, 1), "roi_pct": round(roi_cost, 1),
+            "roi_cash_pct": round(roi_cash, 1),
+            "feasible": profit > 0 and roi_cash >= 50}
 
 
 @app.get("/api/feasibility")
