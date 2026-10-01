@@ -515,7 +515,9 @@ async def list_contributions(pid: str, user=Depends(get_current_user)):
 async def add_contribution(pid: str, data: ContributionIn, user=Depends(get_current_user)):
     p = await get_project_access(pid, user)
     if p.get("user_id") != user["id"]:
-        raise HTTPException(403, "Only the project owner can add records")
+        my_partner = next((pt for pt in p.get("partners", []) if pt.get("email") == user["email"]), None)
+        if not my_partner or data.partner != my_partner.get("name"):
+            raise HTTPException(403, "You can only add contributions under your own partner name")
     doc = data.model_dump(); doc["project_id"] = pid; doc["user_id"] = p["user_id"]
     res = await db.contributions.insert_one(doc)
     return doc_out(await db.contributions.find_one({"_id": res.inserted_id}))
@@ -668,7 +670,7 @@ async def list_ledger(user=Depends(get_current_user)):
 async def add_ledger(data: LedgerIn, user=Depends(get_current_user)):
     if data.from_partner == data.to_partner:
         raise HTTPException(400, "Partners must be different")
-    if data.type not in ("paid_on_behalf", "settlement", "personal"):
+    if data.type not in ("paid_on_behalf", "settlement", "personal", "external"):
         raise HTTPException(400, "Invalid transaction type")
     doc = data.model_dump()
     doc["user_id"] = user["id"]
@@ -692,7 +694,7 @@ def pairwise_balances(txns) -> dict:
         a, b = t["from_partner"], t["to_partner"]
         amt = t["amount"]
         # positive net[a][b] means b owes a
-        if t["type"] in ("paid_on_behalf", "personal"):
+        if t["type"] in ("paid_on_behalf", "personal", "external"):
             net.setdefault(a, {}).setdefault(b, 0.0)
             net[a][b] += amt
         else:  # settlement: money actually moved from a to b, reducing what b owes a
@@ -720,13 +722,15 @@ async def _ledger_balances_for(user_id: str) -> dict:
                 pairs.append({"a": a, "b": b, "amount": round(n, 2), "owes": f"{b} owes {a}"})
             else:
                 pairs.append({"a": a, "b": b, "amount": round(-n, 2), "owes": f"{a} owes {b}"})
-    totals = {p: 0.0 for p in PARTNERS}
-    for pr in pairs:
-        if pr["owes"]:
-            debtor, creditor = pr["owes"].split(" owes ")
-            totals[creditor] += pr["amount"]
-            totals[debtor] -= pr["amount"]
-    return {"pairs": pairs, "totals": {k: round(v, 2) for k, v in totals.items()}}
+    names = set(PARTNERS)
+    for t in txns:
+        names.add(t["from_partner"]); names.add(t["to_partner"])
+    totals = {}
+    for n in names:
+        totals[n] = round(
+            sum(net.get(n, {}).values()) - sum(net.get(o, {}).get(n, 0.0) for o in names if o != n), 2)
+    return {"pairs": pairs, "totals": totals,
+            "extras": {k: v for k, v in totals.items() if k not in PARTNERS}}
 
 
 async def _personal_pairs_for(user_id: str) -> list:
@@ -814,7 +818,14 @@ async def delete_investment(iid: str, user=Depends(get_current_user)):
 
 @app.get("/api/properties")
 async def list_properties(user=Depends(get_current_user)):
-    return [doc_out(d) async for d in db.properties.find({"user_id": user["id"]}).sort("created_at", -1)]
+    out = []
+    async for d in db.properties.find(
+            {"$or": [{"user_id": user["id"]}, {"partners.email": user["email"]}]}).sort("created_at", -1):
+        shared = d.get("user_id") != user["id"]
+        d = doc_out(d)
+        d["shared"] = shared
+        out.append(d)
+    return out
 
 
 @app.post("/api/properties")
@@ -952,31 +963,103 @@ async def _partner_projects(books_uid: str, name: str) -> list:
     return projects
 
 
+# ---------------- people (individual profiles) ----------------
+
+class PersonIn(BaseModel):
+    name: str
+    email: Optional[str] = ""
+    visibility: dict = {"projects": True, "properties": True, "debts": True, "loans": True}
+
+
+@app.get("/api/people")
+async def list_people(user=Depends(get_current_user)):
+    return [doc_out(d) async for d in db.people.find({"user_id": user["id"]}).sort("name", 1)]
+
+
+@app.post("/api/people")
+async def add_person(data: PersonIn, user=Depends(get_current_user)):
+    doc = data.model_dump()
+    doc["name"] = doc["name"].strip()
+    doc["email"] = (doc.get("email") or "").lower().strip()
+    doc["user_id"] = user["id"]
+    doc["created_at"] = now_utc().isoformat()
+    res = await db.people.insert_one(doc)
+    return doc_out(await db.people.find_one({"_id": res.inserted_id}))
+
+
+@app.put("/api/people/{pid}")
+async def update_person(pid: str, data: PersonIn, user=Depends(get_current_user)):
+    doc = data.model_dump()
+    doc["name"] = doc["name"].strip()
+    doc["email"] = (doc.get("email") or "").lower().strip()
+    res = await db.people.update_one({"_id": ObjectId(pid), "user_id": user["id"]}, {"$set": doc})
+    if not res.matched_count:
+        raise HTTPException(404, "Person not found")
+    return doc_out(await db.people.find_one({"_id": ObjectId(pid)}))
+
+
+@app.delete("/api/people/{pid}")
+async def delete_person(pid: str, user=Depends(get_current_user)):
+    res = await db.people.delete_one({"_id": ObjectId(pid), "user_id": user["id"]})
+    if not res.deleted_count:
+        raise HTTPException(404, "Person not found")
+    return {"ok": True}
+
+
+@app.get("/api/people/{pid}/profile")
+async def person_profile(pid: str, user=Depends(get_current_user)):
+    person = await db.people.find_one({"_id": ObjectId(pid), "user_id": user["id"]})
+    if not person:
+        raise HTTPException(404, "Person not found")
+    assoc = await _person_assoc(user["id"], person["name"], user)
+    return {"name": person["name"], "email": person.get("email", ""),
+            "visibility": person.get("visibility", {}), **assoc}
+
+
+async def _person_assoc(books_uid: str, name: str, user: dict) -> dict:
+    bal = await _ledger_balances_for(books_uid)
+    personal = await _personal_pairs_for(books_uid)
+    projects = await _partner_projects(books_uid, name)
+    props = []
+    async for pr in db.properties.find({"user_id": books_uid, "partners.name": name}):
+        pct = next((pt.get("percentage", 0) for pt in pr.get("partners", []) if pt.get("name") == name), 0)
+        props.append({"id": str(pr["_id"]), "name": pr.get("name", ""), "percentage": pct,
+                      "equity_share": round((pr.get("current_value", 0) - pr.get("debt", 0)) * pct / 100, 2)})
+    loans = []
+    async for l in db.personal_loans.find({"user_id": books_uid, "lender": name}):
+        d = doc_out(l)
+        d["computed"] = await personal_loan_metrics(d, user)
+        loans.append(d)
+    return {"position": bal["totals"].get(name, 0),
+            "personal": [x for x in personal if name in (x["debtor"], x["creditor"])],
+            "projects": projects, "properties": props, "loans": loans}
+
+
 @app.get("/api/partner/overview")
 async def partner_overview(user=Depends(get_current_user)):
     if user.get("role") == "admin":
-        bal = await _ledger_balances_for(user["id"])
-        personal = await _personal_pairs_for(user["id"])
+        names = list(PARTNERS)
+        async for pe in db.people.find({"user_id": user["id"]}):
+            if pe["name"] not in names:
+                names.append(pe["name"])
         profiles = []
-        for name in PARTNERS:
-            profiles.append({
-                "name": name,
-                "position": bal["totals"].get(name, 0),
-                "personal": [pr for pr in personal if name in (pr["debtor"], pr["creditor"])],
-                "projects": await _partner_projects(user["id"], name),
-            })
+        for name in names:
+            profiles.append({"name": name, **(await _person_assoc(user["id"], name, user))})
         return {"scope": "all", "profiles": profiles}
     me = user.get("partner_name") or user.get("name")
     admin = await db.users.find_one({"role": "admin"})
     if not admin:
         raise HTTPException(404, "No company admin found")
     books_uid = str(admin["_id"])
-    bal = await _ledger_balances_for(books_uid)
-    personal = await _personal_pairs_for(books_uid)
-    return {"scope": "self", "me": me,
-            "position": bal["totals"].get(me, 0),
-            "personal": [pr for pr in personal if me in (pr["debtor"], pr["creditor"])],
-            "projects": await _partner_projects(books_uid, me)}
+    assoc = await _person_assoc(books_uid, me, user)
+    person = await db.people.find_one({"user_id": books_uid, "name": me})
+    vis = (person or {}).get("visibility") or {"projects": True, "properties": True, "debts": True, "loans": True}
+    return {"scope": "self", "me": me, "visibility": vis,
+            "position": assoc["position"] if vis.get("debts", True) else None,
+            "personal": assoc["personal"] if vis.get("debts", True) else [],
+            "projects": assoc["projects"] if vis.get("projects", True) else [],
+            "properties": assoc["properties"] if vis.get("properties", True) else [],
+            "loans": assoc["loans"] if vis.get("loans", True) else []}
 
 
 # ---------------- market data (yfinance) ----------------
@@ -1110,13 +1193,19 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
         inv_total -= sum(w for i, w in zip(investments, worths) if i.get("type") == "shares")
         inv_by_type.pop("shares", None)
 
-    properties = [doc_out(d) async for d in db.properties.find({"user_id": user["id"]})]
+    properties = [doc_out(d) async for d in db.properties.find(
+        {"$or": [{"user_id": user["id"]}, {"partners.email": user["email"]}]})]
     prop_value_mine = 0.0
     prop_debt_mine = 0.0
     prop_rent = 0.0
     for p in properties:
-        pct = next((pt.get("percentage", 0) for pt in p.get("partners", []) if pt.get("name") == my_name), None)
-        share = pct / 100 if pct is not None else 1.0
+        partners = p.get("partners", [])
+        if partners:
+            pct = next((pt.get("percentage", 0) for pt in partners
+                        if pt.get("name") == my_name or pt.get("email") == user["email"]), 0)
+            share = pct / 100
+        else:
+            share = 1.0
         prop_value_mine += to_aud(p["current_value"], p.get("currency", "AUD"), rates) * share
         prop_debt_mine += to_aud(p["debt"], p.get("currency", "AUD"), rates) * share
         prop_rent += to_aud(p["monthly_rent"], p.get("currency", "AUD"), rates) * share

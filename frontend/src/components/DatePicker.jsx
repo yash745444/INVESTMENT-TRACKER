@@ -19,6 +19,7 @@ export function DatePicker({ value, onChange, testid }) {
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0" align="start">
         <Calendar mode="single" selected={date} initialFocus
+          captionLayout="dropdown" fromYear={1990} toYear={2100}
           onSelect={(d) => { onChange(d ? format(d, "yyyy-MM-dd") : ""); setOpen(false); }} />
       </PopoverContent>
     </Popover>

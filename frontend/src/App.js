@@ -18,6 +18,7 @@ import Investments from "./pages/Investments";
 import Properties from "./pages/Properties";
 import Feasibility from "./pages/Feasibility";
 import PrivateLoans from "./pages/PrivateLoans";
+import People from "./pages/People";
 import Admin from "./pages/Admin";
 import "./App.css";
 
@@ -97,6 +98,7 @@ function AppRouter() {
         <Route path="/projects/:id" element={<ProjectDetail />} />
         <Route path="/partners" element={<Partners />} />
         <Route path="/loans" element={<PrivateLoans />} />
+        <Route path="/people" element={<People />} />
         <Route path="/investments" element={<Investments />} />
         <Route path="/properties" element={<Properties />} />
         <Route path="/feasibility" element={<Feasibility />} />

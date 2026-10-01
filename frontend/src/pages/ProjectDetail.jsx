@@ -10,13 +10,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronUp, Copy } from "lucide-react";
 import { DatePicker } from "../components/DatePicker";
+import { useAuth } from "../context/AuthContext";
 
 const COST_CATEGORIES = ["Site Acquisition", "Architectural & Permits", "Foundation & Structure", "MEP & Finishes", "Marketing & Legal", "Other"];
 
 export default function ProjectDetail() {
   const { id } = useParams();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [project, setProject] = useState(null);
   const [contributions, setContributions] = useState([]);
@@ -50,6 +52,9 @@ export default function ProjectDetail() {
 
   const partnerNames = project.partners?.length ? project.partners.map((p) => p.name) : PARTNERS;
   const readOnly = !!project.shared;
+  const memberPartner = readOnly
+    ? project.partners?.find((pt) => pt.email === user?.email)?.name || null
+    : null;
   const totalContrib = contributions.reduce((s, c) => s + c.amount, 0);
   const totalCosts = costs.reduce((s, c) => s + c.amount, 0);
   const totalDrawn = loans.reduce((s, l) => s + l.metrics.drawn, 0);
@@ -170,7 +175,7 @@ export default function ProjectDetail() {
         </TabsContent>
 
         <TabsContent value="contributions" className="mt-5">
-          <ContributionsTab projectId={id} contributions={contributions} reload={load} partnerNames={partnerNames} readOnly={readOnly} />
+          <ContributionsTab projectId={id} contributions={contributions} reload={load} partnerNames={partnerNames} readOnly={readOnly} memberPartner={memberPartner} />
         </TabsContent>
         <TabsContent value="costs" className="mt-5">
           <CostsTab projectId={id} costs={costs} reload={load} partnerNames={partnerNames} readOnly={readOnly} />
@@ -196,14 +201,14 @@ function DataTable({ head, rows, testid }) {
   );
 }
 
-function ContributionsTab({ projectId, contributions, reload, partnerNames, readOnly }) {
+function ContributionsTab({ projectId, contributions, reload, partnerNames, readOnly, memberPartner }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ date: today(), partner: "Yash", amount: "", description: "" });
 
   const submit = async (e) => {
     e.preventDefault();
     try {
-      await api.post(`/projects/${projectId}/contributions`, { ...form, amount: Number(form.amount) });
+      await api.post(`/projects/${projectId}/contributions`, { ...form, partner: memberPartner || form.partner, amount: Number(form.amount) });
       toast.success("Contribution added");
       setOpen(false);
       setForm({ date: today(), partner: "Yash", amount: "", description: "" });
@@ -215,7 +220,7 @@ function ContributionsTab({ projectId, contributions, reload, partnerNames, read
     <Card>
       <CardHeader className="flex-row items-center justify-between space-y-0">
         <CardTitle className="font-heading text-lg">Capital Contributions</CardTitle>
-        {!readOnly && (
+        {(!readOnly || memberPartner) && (
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild><Button size="sm" data-testid="add-contribution-button"><Plus className="h-4 w-4 mr-1" /> Add</Button></DialogTrigger>
           <DialogContent data-testid="add-contribution-dialog">
@@ -225,7 +230,7 @@ function ContributionsTab({ projectId, contributions, reload, partnerNames, read
                 <div className="space-y-1.5"><Label>Date</Label>
                   <DatePicker testid="contribution-date-input" value={form.date} onChange={(v) => setForm({ ...form, date: v })} /></div>
                 <div className="space-y-1.5"><Label>Partner</Label>
-                  <Select value={form.partner} onValueChange={(v) => setForm({ ...form, partner: v })}>
+                  <Select value={memberPartner || form.partner} onValueChange={(v) => setForm({ ...form, partner: v })} disabled={!!memberPartner}>
                     <SelectTrigger data-testid="contribution-partner-select"><SelectValue /></SelectTrigger>
                     <SelectContent>{partnerNames.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
                   </Select></div>
@@ -248,9 +253,16 @@ function ContributionsTab({ projectId, contributions, reload, partnerNames, read
                 <td className="py-2.5 pr-4 font-sans font-medium">{c.partner}</td>
                 <td className="py-2.5 pr-4 font-sans">{c.description || "—"}</td>
                 <td className="py-2.5 pr-4">{fmt2(c.amount)}</td>
-                <td className="py-2.5">{!readOnly && (<Button variant="ghost" size="icon" data-testid={`delete-contribution-${c.id}`}
-                  onClick={async () => { await api.delete(`/contributions/${c.id}`); toast.success("Deleted"); reload(); }}>
-                  <Trash2 className="h-3.5 w-3.5 text-negative" /></Button>)}</td>
+                <td className="py-2.5">
+                  <div className="flex">
+                    <Button variant="ghost" size="icon" data-testid={`duplicate-contribution-${c.id}`} title="Duplicate (change partner)"
+                      onClick={() => { setForm({ date: today(), partner: memberPartner || c.partner, amount: c.amount, description: c.description || "" }); setOpen(true); }}>
+                      <Copy className="h-3.5 w-3.5" /></Button>
+                    {!readOnly && (<Button variant="ghost" size="icon" data-testid={`delete-contribution-${c.id}`}
+                      onClick={async () => { await api.delete(`/contributions/${c.id}`); toast.success("Deleted"); reload(); }}>
+                      <Trash2 className="h-3.5 w-3.5 text-negative" /></Button>)}
+                  </div>
+                </td>
               </tr>
             ))} />
         )}

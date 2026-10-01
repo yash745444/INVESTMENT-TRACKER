@@ -21,7 +21,7 @@ export default function Partners() {
   const [report, setReport] = useState(null);
   const [form, setForm] = useState({
     date: today(), type: "paid_on_behalf", from_partner: "Yash", to_partner: "Sanjay",
-    amount: "", project_id: "", note: "",
+    amount: "", project_id: "", note: "", lender_name: "",
   });
   const [personal, setPersonal] = useState([]);
   const [pOpen, setPOpen] = useState(false);
@@ -43,7 +43,10 @@ export default function Partners() {
     try {
       const proj = projects.find((p) => p.id === form.project_id);
       await api.post("/ledger", {
-        ...form, amount: Number(form.amount),
+        ...form,
+        from_partner: form.type === "external" ? form.lender_name.trim() : form.from_partner,
+        to_partner: form.type === "external" ? "Company" : form.to_partner,
+        amount: Number(form.amount),
         project_id: form.project_id || null, project_name: proj?.name || "",
       });
       toast.success("Transaction recorded");
@@ -118,8 +121,15 @@ export default function Partners() {
                     <SelectContent>
                       <SelectItem value="paid_on_behalf">Paid on behalf of partner</SelectItem>
                       <SelectItem value="settlement">Settle up (pay / take money)</SelectItem>
+                      <SelectItem value="external">External lender paid (loan to company)</SelectItem>
                     </SelectContent>
                   </Select></div>
+                {form.type === "external" ? (
+                  <div className="space-y-1.5"><Label>Lender name</Label>
+                    <Input data-testid="txn-lender-input" required value={form.lender_name}
+                      onChange={(e) => setForm({ ...form, lender_name: e.target.value })} placeholder="e.g. ABC Capital" />
+                    <p className="text-xs text-muted-foreground">Recorded as a loan to the company — to be repaid from the partners' pool.</p></div>
+                ) : (
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5"><Label>{form.type === "paid_on_behalf" ? "Paid by" : "From"}</Label>
                     <Select value={form.from_partner} onValueChange={(v) => setForm({ ...form, from_partner: v })}>
@@ -132,6 +142,7 @@ export default function Partners() {
                       <SelectContent>{PARTNERS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
                     </Select></div>
                 </div>
+                )}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5"><Label>Date</Label>
                     <DatePicker testid="txn-date-input" value={form.date} onChange={(v) => setForm({ ...form, date: v })} /></div>
@@ -216,6 +227,20 @@ export default function Partners() {
                   </div>
                 );
               })}
+            </div>
+          )}
+          {balances && Object.entries(balances.totals).filter(([k]) => !PARTNERS.includes(k) && Math.abs(balances.totals[k]) > 0.005).length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-3" data-testid="external-lenders">
+              {Object.entries(balances.totals).filter(([k]) => !PARTNERS.includes(k) && Math.abs(balances.totals[k]) > 0.005).map(([k, v]) => (
+                <div key={k} className="flex items-center justify-between rounded-lg border p-3.5 gap-2" style={{ borderColor: "hsl(var(--gold) / 0.5)" }}
+                  data-testid={`external-${k.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>
+                  <span className="text-sm font-medium shrink-0">{k}</span>
+                  <span className="font-mono text-xs text-right">
+                    <span className={`block ${v >= 0 ? "text-positive" : "text-negative"}`}>{v >= 0 ? "Company owes them" : "They owe Company"}</span>
+                    <span className="text-gold font-semibold">{fmt2(Math.abs(v))}</span>
+                  </span>
+                </div>
+              ))}
             </div>
           )}
           <p className="text-xs text-muted-foreground mt-3">The 4 partners operate as one company pool — settle with the company, not with each other.</p>
@@ -320,6 +345,8 @@ export default function Partners() {
                       <td className="py-2.5 pr-4 font-sans">
                         {t.type === "paid_on_behalf"
                           ? <span><b>{t.from_partner}</b> paid for <b>{t.to_partner}</b></span>
+                          : t.type === "external"
+                          ? <span><b>{t.from_partner}</b> → <b>Company</b> (external loan)</span>
                           : <span><b>{t.from_partner}</b> → <b>{t.to_partner}</b> (settle)</span>}
                       </td>
                       <td className="py-2.5 pr-4 font-sans">{t.project_name || "—"}</td>

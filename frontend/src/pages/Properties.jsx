@@ -10,10 +10,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { toast } from "sonner";
 import { Plus, Trash2, Pencil, Building2, X } from "lucide-react";
 import { DatePicker } from "../components/DatePicker";
+import { useAuth } from "../context/AuthContext";
 
 const EMPTY = { name: "", address: "", purchase_date: "", purchase_price: "", current_value: "", monthly_rent: "", debt: "", currency: "AUD", partners: [], notes: "" };
 
 export default function Properties() {
+  const { user } = useAuth();
   const [items, setItems] = useState(null);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -109,7 +111,7 @@ export default function Properties() {
         </CardContent></Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {items.map((p) => (
+          {items.map((p) => { const myPt = p.partners?.find((x) => x.name === user?.name || x.email === user?.email); return (
             <Card key={p.id} className="card-hover" data-testid={`property-card-${p.id}`}>
               <CardContent className="p-5 space-y-4">
                 <div className="flex items-start justify-between gap-2">
@@ -117,6 +119,9 @@ export default function Properties() {
                     <h3 className="font-heading font-semibold text-lg tracking-tight">{p.name}</h3>
                     {p.address && <p className="text-xs text-muted-foreground mt-0.5">{p.address}</p>}
                   </div>
+                  {p.shared ? (
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full border text-gold shrink-0" style={{ borderColor: "hsl(var(--gold))" }} data-testid={`property-shared-${p.id}`}>Shared</span>
+                  ) : (
                   <div className="flex shrink-0">
                     <Button variant="ghost" size="icon" data-testid={`edit-prop-${p.id}`}
                       onClick={() => { setEditing(p.id); setForm({ ...p }); setOpen(true); }}>
@@ -125,6 +130,7 @@ export default function Properties() {
                       onClick={async () => { await api.delete(`/properties/${p.id}`); toast.success("Deleted"); load(); }}>
                       <Trash2 className="h-3.5 w-3.5 text-negative" /></Button>
                   </div>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div><p className="label-overline">Rent / mo</p>
@@ -143,6 +149,12 @@ export default function Properties() {
                   </span>
                 </div>
                 {p.partners?.length > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">My equity ({myPt?.percentage || 0}%)</span>
+                    <span className="font-mono font-semibold" data-testid={`my-equity-${p.id}`}>{fmt((p.current_value - p.debt) * (myPt?.percentage || 0) / 100, p.currency)}</span>
+                  </div>
+                )}
+                {p.partners?.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 pt-1" data-testid={`prop-partners-${p.id}`}>
                     {p.partners.map((pt) => (
                       <span key={pt.name} className="text-xs font-mono px-2 py-0.5 rounded-full bg-secondary"
@@ -154,7 +166,7 @@ export default function Properties() {
                 )}
               </CardContent>
             </Card>
-          ))}
+          ); })}
         </div>
       )}
     </div>
