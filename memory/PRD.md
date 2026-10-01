@@ -78,6 +78,16 @@ eToro has NO public API for portfolio sync. Shares holdings are entered once (sy
 - Dashboard: net worth toggle With debts / Without debts + debts breakdown (property / project loans / private loans)
 - Testing: iteration_5 — 17/17 backend, 100% critical UI flows
 
+## Implemented (2026-09-27, iteration 6)
+- BUG FIX: property equity with partners now splits by % (was defaulting 100%); shared properties flow to partners' accounts via partner email, their dashboards show their % share; read-only for non-owners
+- DatePicker: year/month dropdowns (1990–2100), caption deduped via CSS
+- Partner Ledger: external lender transaction type (free-text lender → loan to Company); Company Settlement shows external/Company rows
+- People page (/people, admin-only, backend-enforced): individual profiles — name, email, per-section visibility toggles (projects/properties/debts/loans); profile dialog aggregates position, projects, properties, personal debts, private loans
+- Partner overview: admin sees profiles for core 4 + all people; linked partners get self-only view filtered by admin-set visibility flags
+- Members can add their OWN contributions on shared projects (name locked, enforced server-side); everything else view-only for them; their private data never visible to admin
+- Contributions: duplicate button per row (prefills dialog, just switch partner)
+- Testing: iteration_6 — 13/14 backend (1 spec gap now fixed), 100% UI flows; reported property-share bug verified fixed at API + UI
+
 ## Backlog
 - P1: Edit project (name/partners %) from UI; settle-up shortcut button per pair
 - P1: Editable/manual FX rate override

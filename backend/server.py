@@ -830,14 +830,22 @@ async def list_properties(user=Depends(get_current_user)):
 
 @app.post("/api/properties")
 async def add_property(data: PropertyIn, user=Depends(get_current_user)):
-    doc = data.model_dump(); doc["user_id"] = user["id"]; doc["created_at"] = now_utc().isoformat()
+    doc = data.model_dump()
+    for pt in doc.get("partners", []):
+        if pt.get("email"):
+            pt["email"] = pt["email"].lower().strip()
+    doc["user_id"] = user["id"]; doc["created_at"] = now_utc().isoformat()
     res = await db.properties.insert_one(doc)
     return doc_out(await db.properties.find_one({"_id": res.inserted_id}))
 
 
 @app.put("/api/properties/{pid}")
 async def update_property(pid: str, data: PropertyIn, user=Depends(get_current_user)):
-    res = await db.properties.update_one({"_id": ObjectId(pid), "user_id": user["id"]}, {"$set": data.model_dump()})
+    doc = data.model_dump()
+    for pt in doc.get("partners", []):
+        if pt.get("email"):
+            pt["email"] = pt["email"].lower().strip()
+    res = await db.properties.update_one({"_id": ObjectId(pid), "user_id": user["id"]}, {"$set": doc})
     if not res.matched_count:
         raise HTTPException(404, "Property not found")
     return doc_out(await db.properties.find_one({"_id": ObjectId(pid)}))
@@ -972,12 +980,12 @@ class PersonIn(BaseModel):
 
 
 @app.get("/api/people")
-async def list_people(user=Depends(get_current_user)):
+async def list_people(user=Depends(require_admin)):
     return [doc_out(d) async for d in db.people.find({"user_id": user["id"]}).sort("name", 1)]
 
 
 @app.post("/api/people")
-async def add_person(data: PersonIn, user=Depends(get_current_user)):
+async def add_person(data: PersonIn, user=Depends(require_admin)):
     doc = data.model_dump()
     doc["name"] = doc["name"].strip()
     doc["email"] = (doc.get("email") or "").lower().strip()
@@ -988,7 +996,7 @@ async def add_person(data: PersonIn, user=Depends(get_current_user)):
 
 
 @app.put("/api/people/{pid}")
-async def update_person(pid: str, data: PersonIn, user=Depends(get_current_user)):
+async def update_person(pid: str, data: PersonIn, user=Depends(require_admin)):
     doc = data.model_dump()
     doc["name"] = doc["name"].strip()
     doc["email"] = (doc.get("email") or "").lower().strip()
@@ -999,7 +1007,7 @@ async def update_person(pid: str, data: PersonIn, user=Depends(get_current_user)
 
 
 @app.delete("/api/people/{pid}")
-async def delete_person(pid: str, user=Depends(get_current_user)):
+async def delete_person(pid: str, user=Depends(require_admin)):
     res = await db.people.delete_one({"_id": ObjectId(pid), "user_id": user["id"]})
     if not res.deleted_count:
         raise HTTPException(404, "Person not found")
@@ -1007,7 +1015,7 @@ async def delete_person(pid: str, user=Depends(get_current_user)):
 
 
 @app.get("/api/people/{pid}/profile")
-async def person_profile(pid: str, user=Depends(get_current_user)):
+async def person_profile(pid: str, user=Depends(require_admin)):
     person = await db.people.find_one({"_id": ObjectId(pid), "user_id": user["id"]})
     if not person:
         raise HTTPException(404, "Person not found")
@@ -1040,7 +1048,7 @@ async def partner_overview(user=Depends(get_current_user)):
     if user.get("role") == "admin":
         names = list(PARTNERS)
         async for pe in db.people.find({"user_id": user["id"]}):
-            if pe["name"] not in names:
+            if pe["name"].lower() not in [n.lower() for n in names]:
                 names.append(pe["name"])
         profiles = []
         for name in names:
@@ -1202,7 +1210,7 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
         partners = p.get("partners", [])
         if partners:
             pct = next((pt.get("percentage", 0) for pt in partners
-                        if pt.get("name") == my_name or pt.get("email") == user["email"]), 0)
+                        if (pt.get("name") or "").lower() == my_name.lower() or pt.get("email") == user["email"]), 0)
             share = pct / 100
         else:
             share = 1.0
