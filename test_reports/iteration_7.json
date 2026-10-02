@@ -1,0 +1,26 @@
+{
+  "summary": "Iteration 7 fully verified. Backend 11/11 pytest pass covering: (a) name migration (admin.name='Yash Sojitra', MAISON 7 partners include all four full names, dashboard my_contributions=$67,000 at 10%), (b) bulk costs API — insert 3 items returns {inserted:3} and all three persist on GET; empty items returns {inserted:0}; non-owner (approved test user) gets 403, (c) GET /api/report/networth returns all required sections (summary with net_worth / net_worth_without_debts / debts / ledger_net, investments, properties, projects, private_loans, ledger, rates, user, generated_at), shares correctly redacted ('Hidden holding', worth_aud null) when locked and revealed after PIN 2468, (d) non-admin approved user gets THEIR OWN data only (name='Test User Iter7', own investments/properties/private_loans arrays, no admin bleed), (e) linked-partner self view regression: test user with partner_name='Sanjay Jogani' sees only projects they are linked to on /api/dashboard. Frontend end-to-end on live preview URL: login works, sidebar shows 'Signed in as Yash Sojitra', dashboard Project Positions row shows MAISON 7 | 10% | $67,000 | $67,000, networth-report-button opens dialog with Investments/Properties/MAISON 7 content and download-networth-report button visible; MAISON 7 → Cost Tracker → bulk-costs-button opens dialog, filled 2 rows (TEST_BULK_UI_1 $100, TEST_BULK_UI_2 $250), bulk-add-row added third, bulk-remove-2 removed it, bulk-submit text became 'Save All (2)' and submit produced toast '2 expenses added' with both rows in table (cleaned up after); Partners page shows all four full names + '(You)' tag on Yash Sojitra; personal-person-select lists ['Yash Sojitra','Sanjay Jogani','Pranay Jetani','Max Ma','Custom…'] and selecting Custom reveals personal-person-input; Private Loans add-dialog pl-lender-input has datalist attribute linked.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dialogs (networth report, bulk costs)", "issues": ["Radix DialogContent missing aria-describedby — a11y warning in console, non-blocking"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iteration7.py", "/app/test_reports/pytest/iteration7.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is 1558 lines — approaching the 'split into modules' threshold; consider splitting routes (projects/costs/report/auth) into subrouters.",
+    "add_costs_bulk does not validate per-item (negative amounts, missing category) beyond CostIn Pydantic — if CostIn allows amount<0 bulk could insert negatives. Verify CostIn constraints.",
+    "report/networth property percentage lookup uses case-insensitive name match OR email — relies on user.name/partner_name alignment; after name migration this is correct for admin, but any future rename would need another migration (keep migration idempotent as noted)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration7.py"],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "100% (migration + bulk + report + dropdown flows verified)"},
+  "test_credentials": "yash.sojitra34@gmail.com / Yash@2026 ; Shares PIN 2468 ; non-admin tested via mongosh-simulated session (partner_name=Sanjay Jogani)",
+  "seed_data_creation": "TEST_BULK_1/2/3 (backend) and TEST_BULK_UI_1/2 (frontend) created on MAISON 7 costs and cleaned up after each test. Transient non-admin user test.user.iter7.* created+deleted in fixture teardown.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 7 complete. All six changes verified live. Name migration is idempotent; MAISON 7 has 9 contributions * $67k = $603,000 untouched. Bulk endpoint path: POST /api/projects/{pid}/costs/bulk {items:[CostIn]}. Report endpoint: GET /api/report/networth returns dict with summary/investments/properties/projects/private_loans/ledger. Shares redaction gated by shares_visible(request) cookie set via POST /api/shares/unlock {pin:'2468'}.",
+  "rca of the issue": "n/a — all features working as specified."
+}

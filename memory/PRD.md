@@ -88,7 +88,16 @@ eToro has NO public API for portfolio sync. Shares holdings are entered once (sy
 - Contributions: duplicate button per row (prefills dialog, just switch partner); edit button per row (PUT /api/contributions/{cid}, owner-only) — amounts editable after creation
 - Testing: iteration_6 — 13/14 backend (1 spec gap now fixed), 100% UI flows; reported property-share bug verified fixed at API + UI
 
+## Implemented (2026-10-02, iteration 7)
+- Bulk expenses: project Cost Tracker "Bulk Add" dialog — multi-row entry (date/category/description/amount), POST /api/projects/{pid}/costs/bulk, owner-only
+- Net worth report: Dashboard "Net worth report" button → full itemized report (investments w/ FX conversions, properties w/ equity shares, projects w/ invested+equity, private loans, partner positions, debts summary) — view in dialog + download .txt; any user generates their own; shares redacted unless PIN-unlocked
+- People-linked inputs: ledger from/to selects = core 4 + People names; personal-debt person = dropdown + Custom; private-loan lender + project/property partner names have datalist suggestions from People
+- Name migration: full names everywhere (Yash Sojitra, Sanjay Jogani, Pranay Jetani, Max Ma) — idempotent startup migration across ledger/contributions/costs/projects/properties/loans/people + admin user; FIXED latent bug where MAISON 7 equity/invested ($67k at 10%) didn't credit to Yash
+- Verified: linked partners see only their own stance; People profiles editable
+- Testing: iteration_7 — 11/11 backend, 100% UI flows
+
 ## Backlog
+- P2: split server.py (1558 lines) into routers (auth/projects/report/ledger)
 - P1: Edit project (name/partners %) from UI; settle-up shortcut button per pair
 - P1: Editable/manual FX rate override
 - P2: Cash-flow history chart on dashboard; PDF report export
