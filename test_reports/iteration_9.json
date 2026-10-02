@@ -1,0 +1,37 @@
+{
+  "summary": "Iteration 9 full testing — Company split contributions + Project current_value field. All backend tests (5/5) and all frontend UI flows passed. Verified exact rounding for 33.33/33.33/33.34 split of 100000 => 33330/33330/33340 preserving total; 400 on no-partner project; 401/403 for unauthenticated. UI: company split option visible in ADD only (count=1), hidden in EDIT (count=0); split preview renders 9 partner rows with correct per-partner amounts summing to the exact entered total (900 => 90+90+90+90+90+45+225+112.5+67.5 = 900); submit creates 9 rows tagged with 'company split X%'. Project value: project-value-input present in New/Edit dialog, round-trips through POST/PUT/GET; TEMP project with 1500000 shows '$1,500,000' on card (project-value-<id>) and on pd-stat-value. Edit prefills correctly. Edit project dialog has max-h-[85vh] overflow-y-auto and is scrollable. Edit label consistency verified via code grep across all 6 dialogs. MAISON 7 real data untouched: 9 rows, $670,000 preserved; TEMP project deleted.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Projects (New/Edit Project dialog)", "issues": ["React warning: 'A component is changing a controlled input to be uncontrolled' on project-value-input — initial value is undefined, becomes defined on first keystroke. Non-blocking; add `|| ''` fallback or initialize form.current_value to '' in setForm state to silence."]},
+      {"screen": "Add Contribution dialog", "issues": ["A11y warning: 'Missing Description or aria-describedby for DialogContent' — radix DialogContent needs a DialogDescription or aria-describedby. Low priority."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration9.py",
+    "/app/test_reports/pytest/iteration9.xml"
+  ],
+  "action_items": [
+    "(Low) Silence React controlled/uncontrolled warning on project-value-input by defaulting form.current_value to '' instead of undefined.",
+    "(Low) Add DialogDescription (or aria-describedby) to Add Contribution / Edit Project dialogs for a11y."
+  ],
+  "critical_code_review_comments": [
+    "Backend split endpoint correctly handles rounding with 'remainder to last partner' pattern — total preserved.",
+    "Partners filter (percentage > 0) in split endpoint correctly ignores zero-share partners.",
+    "PUT /api/projects does full $set — the frontend MUST echo final_profit and partners; already verified in iteration 8 and iteration 9 tests. If a future frontend callsite omits final_profit it will silently zero it — consider changing to partial update.",
+    "React controlled-input warning indicates form state init in Projects.jsx doesn't include current_value key — minor bug."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "yash.sojitra34@gmail.com / Yash@2026 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Created and deleted TEST_ITER9_UI_TEMP project (current_value=1500000). Created 9 TEST_ITER9_UI_split rows via split endpoint on MAISON 7 and deleted all of them. MAISON 7 state restored (9 rows, $670,000).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 9 fully green — company split + current_value both work end-to-end. Backend test file /app/backend/tests/test_iteration9.py added (5 tests, all passing). Only minor React controlled-input warning on project-value-input remains (non-blocking). Previous iteration suites (1-8) not re-run.",
+  "rca of the issue": "N/A — no issues found."
+}

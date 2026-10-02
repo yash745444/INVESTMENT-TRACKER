@@ -57,7 +57,7 @@ export default function Projects() {
     <div className="space-y-6" data-testid="projects-page">
       <div className="flex items-center justify-between">
         <h1 className="font-heading font-bold text-2xl sm:text-3xl tracking-tight">Construction Projects</h1>
-        <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setEditing(null); setForm({ name: "", address: "", description: "" }); setPartnerRows(DEFAULT_PARTNERS); } }}>
+        <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setEditing(null); setForm({ name: "", address: "", description: "", current_value: "" }); setPartnerRows(DEFAULT_PARTNERS); } }}>
           <DialogTrigger asChild>
             <Button data-testid="new-project-button"><Plus className="h-4 w-4 mr-1.5" /> New Project</Button>
           </DialogTrigger>

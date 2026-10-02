@@ -96,6 +96,16 @@ eToro has NO public API for portfolio sync. Shares holdings are entered once (sy
 - Verified: linked partners see only their own stance; People profiles editable
 - Testing: iteration_7 — 11/11 backend, 100% UI flows
 
+## Implemented (2026-10-02, iteration 8 — universal editing)
+- Every input section now editable in place (owner-only, linked partners stay read-only): projects (name/address/partners/value via UI, PUT /api/projects/{pid} — frontend echoes final_profit so it is never wiped), costs (PUT /api/costs/{cid}), project loans (PUT /api/loans/{lid} — pops drawdowns so edits never wipe them; schedule/outstanding/monthly recalc live), drawdowns (PUT+DELETE /api/loans/{lid}/drawdowns/{idx}), ledger entries incl. settlements/personal debts/external lender (PUT /api/ledger/{tid}), private loans (PUT /api/personal-loans/{lid}, recomputes accrued/profit-share), feasibility studies (PUT /api/feasibility/{fid}, recomputes verdict)
+- UX: all edit dialogs prefill and read "Save Changes"; Edit Project dialog capped at 85vh scrollable
+- Testing: iteration_8 — 13/13 backend pytest (/app/backend/tests/test_iteration8.py), 100% UI flows incl. profit-preservation flow on MAISON 7
+
+## Implemented (2026-10-02, iteration 9 — company split + project value)
+- Company contributions: Add Contribution partner dropdown gains "Company — split by ownership %" → POST /api/projects/{pid}/contributions/split creates one row per partner (amount × %, remainder-to-last-partner keeps total exact; 400 if no partners; owner-only); live per-partner split preview in the dialog; option hidden in edit mode and for linked members
+- Project value (as at): ProjectIn.current_value — editable in New/Edit Project dialog, shown as "Project Value" on project cards and 6th stat card on Project Detail
+- Testing: iteration_9 — 5/5 backend (/app/backend/tests/test_iteration9.py), 100% UI flows; MAISON 7 real data untouched
+
 ## Backlog
 - P2: split server.py (1558 lines) into routers (auth/projects/report/ledger)
 - P1: Edit project (name/partners %) from UI; settle-up shortcut button per pair
