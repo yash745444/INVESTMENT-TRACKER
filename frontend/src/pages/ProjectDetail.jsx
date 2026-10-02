@@ -160,7 +160,7 @@ export default function ProjectDetail() {
                 <Card key={pt.name} className="card-hover" data-testid={`partner-card-${pt.name.toLowerCase()}`}>
                   <CardContent className="p-5 space-y-3">
                     <div className="flex items-center justify-between">
-                      <h3 className="font-heading font-semibold">{pt.name}{pt.name === "Yash" && <span className="text-xs text-gold ml-1.5">(You)</span>}</h3>
+                      <h3 className="font-heading font-semibold">{pt.name}{pt.name === user?.name && <span className="text-xs text-gold ml-1.5">(You)</span>}</h3>
                       <span className="font-mono text-sm text-muted-foreground">{pt.percentage}%</span>
                     </div>
                     <div className="space-y-1.5 text-sm">
@@ -204,7 +204,7 @@ function DataTable({ head, rows, testid }) {
 function ContributionsTab({ projectId, contributions, reload, partnerNames, readOnly, memberPartner }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({ date: today(), partner: "Yash", amount: "", description: "" });
+  const [form, setForm] = useState({ date: today(), partner: partnerNames?.[0] || "", amount: "", description: "" });
 
   const submit = async (e) => {
     e.preventDefault();
@@ -215,7 +215,7 @@ function ContributionsTab({ projectId, contributions, reload, partnerNames, read
       toast.success(editing ? "Contribution updated" : "Contribution added");
       setOpen(false);
       setEditing(null);
-      setForm({ date: today(), partner: "Yash", amount: "", description: "" });
+      setForm({ date: today(), partner: partnerNames?.[0] || "", amount: "", description: "" });
       reload();
     } catch (err) { toast.error(apiError(err)); }
   };
@@ -280,7 +280,21 @@ function ContributionsTab({ projectId, contributions, reload, partnerNames, read
 
 function CostsTab({ projectId, costs, reload, partnerNames, readOnly }) {
   const [open, setOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [rows, setRows] = useState([{ date: today(), category: "Site Acquisition", description: "", amount: "", paid_by: "" }]);
   const [form, setForm] = useState({ date: today(), category: "Site Acquisition", amount: "", description: "", paid_by: "" });
+
+  const submitBulk = async () => {
+    const items = rows.filter((r) => Number(r.amount) > 0).map((r) => ({ ...r, amount: Number(r.amount) }));
+    if (!items.length) { toast.error("Add at least one amount"); return; }
+    try {
+      await api.post(`/projects/${projectId}/costs/bulk`, { items });
+      toast.success(`${items.length} expenses added`);
+      setBulkOpen(false);
+      setRows([{ date: today(), category: "Site Acquisition", description: "", amount: "", paid_by: "" }]);
+      reload();
+    } catch (err) { toast.error(apiError(err)); }
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -311,6 +325,42 @@ function CostsTab({ projectId, costs, reload, partnerNames, readOnly }) {
       <Card>
         <CardHeader className="flex-row items-center justify-between space-y-0">
           <CardTitle className="font-heading text-lg">Project Cash / Cost Tracker</CardTitle>
+          <div className="flex gap-2">
+          {!readOnly && (
+          <Dialog open={bulkOpen} onOpenChange={setBulkOpen}>
+            <DialogTrigger asChild><Button size="sm" variant="outline" data-testid="bulk-costs-button"><Plus className="h-4 w-4 mr-1" /> Bulk Add</Button></DialogTrigger>
+            <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto" data-testid="bulk-costs-dialog">
+              <DialogHeader><DialogTitle className="font-heading">Bulk Add Expenses</DialogTitle></DialogHeader>
+              <div className="space-y-3">
+                {rows.map((r, i) => (
+                  <div key={i} className="grid grid-cols-12 gap-2 items-end">
+                    <div className="col-span-3"><Label className="text-xs">Date</Label>
+                      <DatePicker testid={`bulk-date-${i}`} value={r.date} onChange={(v) => setRows(rows.map((x, j) => j === i ? { ...x, date: v } : x))} /></div>
+                    <div className="col-span-3"><Label className="text-xs">Category</Label>
+                      <Select value={r.category} onValueChange={(v) => setRows(rows.map((x, j) => j === i ? { ...x, category: v } : x))}>
+                        <SelectTrigger data-testid={`bulk-category-${i}`}><SelectValue /></SelectTrigger>
+                        <SelectContent>{COST_CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+                      </Select></div>
+                    <div className="col-span-3"><Label className="text-xs">Description</Label>
+                      <Input data-testid={`bulk-desc-${i}`} value={r.description} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, description: e.target.value } : x))} /></div>
+                    <div className="col-span-2"><Label className="text-xs">Amount</Label>
+                      <Input data-testid={`bulk-amount-${i}`} type="number" step="0.01" value={r.amount} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, amount: e.target.value } : x))} /></div>
+                    <div className="col-span-1">
+                      <Button type="button" variant="ghost" size="icon" data-testid={`bulk-remove-${i}`} onClick={() => setRows(rows.filter((_, j) => j !== i))} disabled={rows.length === 1}>
+                        <Trash2 className="h-3.5 w-3.5 text-negative" /></Button>
+                    </div>
+                  </div>
+                ))}
+                <Button type="button" variant="outline" size="sm" data-testid="bulk-add-row"
+                  onClick={() => setRows([...rows, { date: today(), category: "Site Acquisition", description: "", amount: "", paid_by: "" }])}>
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Add row
+                </Button>
+                <Button data-testid="bulk-submit" className="w-full" onClick={submitBulk}>
+                  Save All ({rows.filter((r) => Number(r.amount) > 0).length})
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>)}
           {!readOnly && (
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild><Button size="sm" data-testid="add-cost-button"><Plus className="h-4 w-4 mr-1" /> Add Cost</Button></DialogTrigger>
@@ -341,6 +391,7 @@ function CostsTab({ projectId, costs, reload, partnerNames, readOnly }) {
               </form>
             </DialogContent>
           </Dialog>)}
+          </div>
         </CardHeader>
         <CardContent>
           {costs.length === 0 ? <p className="text-sm text-muted-foreground">No costs recorded.</p> : (

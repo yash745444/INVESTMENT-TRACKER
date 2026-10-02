@@ -17,6 +17,7 @@ const EMPTY = { lender: "", amount: "", date: today(), type: "interest",
 export default function PrivateLoans() {
   const [loans, setLoans] = useState(null);
   const [projects, setProjects] = useState([]);
+  const [people, setPeople] = useState([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY);
 
@@ -24,6 +25,7 @@ export default function PrivateLoans() {
     const [l, p] = await Promise.all([api.get("/personal-loans"), api.get("/projects")]);
     setLoans(l.data);
     setProjects(p.data.filter((x) => !x.shared));
+    api.get("/people").then((r) => setPeople(r.data)).catch(() => {});
   };
   useEffect(() => { load(); }, []);
 
@@ -62,8 +64,11 @@ export default function PrivateLoans() {
             <form onSubmit={submit} className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5"><Label>Lender name</Label>
-                  <Input data-testid="pl-lender-input" required value={form.lender}
-                    onChange={(e) => setForm({ ...form, lender: e.target.value })} placeholder="e.g. Uncle Raj" /></div>
+                  <Input data-testid="pl-lender-input" required value={form.lender} list="lender-people-list"
+                    onChange={(e) => setForm({ ...form, lender: e.target.value })} placeholder="Pick or type a name" />
+                  <datalist id="lender-people-list">
+                    {people.map((p) => <option key={p.id} value={p.name} />)}
+                  </datalist></div>
                 <div className="space-y-1.5"><Label>Amount (AUD)</Label>
                   <Input data-testid="pl-amount-input" type="number" step="0.01" required value={form.amount}
                     onChange={(e) => setForm({ ...form, amount: e.target.value })} /></div>

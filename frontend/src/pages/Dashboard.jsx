@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
-import { fmt } from "../lib/format";
+import { fmt, fmt2 } from "../lib/format";
+import { Button } from "../components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
-import { TrendingUp, Building2, HardHat, Users, Wallet, Lock } from "lucide-react";
+import { TrendingUp, Building2, HardHat, Users, Wallet, Lock, FileText } from "lucide-react";
 import { PinUnlock } from "../components/PinUnlock";
 import { isSharesUnlocked, setSharesUnlocked } from "../lib/sharesLock";
 
@@ -15,6 +17,8 @@ export default function Dashboard() {
   const [unlocked, setUnlocked] = useState(isSharesUnlocked());
   const [pinOpen, setPinOpen] = useState(false);
   const [withDebts, setWithDebts] = useState(true);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [report, setReport] = useState(null);
   const navigate = useNavigate();
 
   const load = () => api.get("/dashboard").then((r) => {
@@ -22,6 +26,35 @@ export default function Dashboard() {
     if ((r.data.investments.shares_total || 0) > 0) { setSharesUnlocked(); setUnlocked(true); }
   }).catch(() => {});
   useEffect(() => { load(); }, []);
+
+  const openReport = async () => {
+    const r = await api.get("/report/networth");
+    setReport(r.data);
+    setReportOpen(true);
+  };
+
+  const downloadReport = () => {
+    if (!report) return;
+    const f = (v) => v == null ? "••••" : `$${Number(v).toLocaleString("en-AU", { maximumFractionDigits: 0 })}`;
+    let t = `NET WORTH REPORT — ${report.user.name} (${report.user.email})\nGenerated: ${new Date(report.generated_at).toLocaleString("en-AU")}\nBase currency: AUD\n\n== SUMMARY ==\nNet worth (with debts): ${f(report.summary.net_worth)}\nNet worth (without debts): ${f(report.summary.net_worth_without_debts)}\nTotal debts: ${f(report.summary.debts.total)} (property ${f(report.summary.debts.property_debt)} · project loans ${f(report.summary.debts.project_loans)} · private loans ${f(report.summary.debts.personal_loans)})\n\n== INVESTMENTS ==\n`;
+    report.investments.forEach((i) => { t += `${i.name} (${i.type}): ${i.redacted ? "hidden" : `${i.native} ${i.currency} ≈ ${f(i.worth_aud)}`}\n`; });
+    t += `\n== PROPERTIES ==\n`;
+    report.properties.forEach((p) => { t += `${p.name}: value ${f(p.value)} ${p.currency}, debt ${f(p.debt)}, rent ${f(p.rent)}/mo, my share ${p.my_percentage}% → my equity ${f(p.my_equity_aud)}\n`; });
+    t += `\n== PROJECTS ==\n`;
+    report.projects.forEach((p) => { t += `${p.name}: my share ${p.my_percentage}%, invested ${f(p.my_contributions)}, my equity ${f(p.my_equity)}, loan share ${f(p.my_loan_share)}\n`; });
+    if (report.private_loans.length) {
+      t += `\n== PRIVATE LOANS (I owe) ==\n`;
+      report.private_loans.forEach((l) => { t += `${l.lender}: ${f(l.amount)} (${l.type}) → return ${f(l.return_amount)}, total owed ${f(l.total_owed)}\n`; });
+    }
+    t += `\n== PARTNER POSITIONS ==\n`;
+    Object.entries(report.ledger.company).forEach(([k, v]) => { if (Math.abs(v) > 0.005) t += `${k}: ${v > 0 ? "take from company" : "pay to company"} ${f(Math.abs(v))}\n`; });
+    report.ledger.personal.forEach((d) => { t += `${d.debtor} owes ${d.creditor} ${f(d.amount)} (personal)\n`; });
+    t += `\nFX: 1 AUD = ${report.rates.USD?.toFixed(4)} USD · ${report.rates.INR?.toFixed(2)} INR\n`;
+    const url = URL.createObjectURL(new Blob([t], { type: "text/plain" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = `net-worth-report-${new Date().toISOString().slice(0, 10)}.txt`; a.click();
+    URL.revokeObjectURL(url);
+  };
 
   if (!data) return <div className="text-muted-foreground" data-testid="dashboard-loading">Loading…</div>;
 
@@ -57,6 +90,10 @@ export default function Dashboard() {
             <button onClick={() => setWithDebts(false)} data-testid="nw-without-debts"
               className={`px-3 py-1.5 transition-colors ${!withDebts ? "bg-secondary text-foreground" : "text-muted-foreground"}`}>Without debts</button>
           </div>
+          <button data-testid="networth-report-button" onClick={openReport}
+            className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground border border-border rounded-full px-3 py-1.5 hover:border-gold transition-colors">
+            <FileText className="h-3 w-3" /> Net worth report
+          </button>
           {!unlocked && sharesCount > 0 && (
             <button data-testid="unlock-shares-button" onClick={() => setPinOpen(true)}
               className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground border border-border rounded-full px-3 py-1.5 hover:border-gold transition-colors">
@@ -182,6 +219,44 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={reportOpen} onOpenChange={setReportOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto" data-testid="networth-report-dialog">
+          <DialogHeader><DialogTitle className="font-heading">Net Worth Report</DialogTitle></DialogHeader>
+          {report && (
+            <div className="space-y-4 text-sm">
+              <div>
+                <p className="label-overline mb-1.5">Summary</p>
+                <p className="font-mono" data-testid="report-nw">With debts: <b>{fmt(report.summary.net_worth)}</b></p>
+                <p className="font-mono">Without debts: <b>{fmt(report.summary.net_worth_without_debts)}</b></p>
+                <p className="font-mono text-negative text-xs">Debts: {fmt(report.summary.debts.total)}</p>
+              </div>
+              {[
+                ["Investments", report.investments, (i) => `${i.name} — ${i.redacted ? "hidden" : `${fmt2(i.native, i.currency)} ≈ ${fmt(i.worth_aud)}`}`],
+                ["Properties", report.properties, (p) => `${p.name} — equity ${fmt(p.my_equity_aud)} (${p.my_percentage}%) · rent ${fmt(p.rent, p.currency)}/mo`],
+                ["Projects", report.projects, (p) => `${p.name} — ${p.my_percentage}% · invested ${fmt(p.my_contributions)} · equity ${fmt(p.my_equity)}`],
+                ["Private Loans", report.private_loans, (l) => `${l.lender} — ${fmt(l.amount)} · owed ${fmt(l.total_owed)}`],
+              ].map(([title, items, render]) => (
+                <div key={title}>
+                  <p className="label-overline mb-1.5">{title}</p>
+                  {items.length === 0 ? <p className="text-muted-foreground text-xs">None.</p> :
+                    items.map((it, idx) => <p key={idx} className="font-mono text-xs py-0.5">{render(it)}</p>)}
+                </div>
+              ))}
+              <div>
+                <p className="label-overline mb-1.5">Partner Positions</p>
+                {Object.entries(report.ledger.company).filter(([, v]) => Math.abs(v) > 0.005).map(([k, v]) => (
+                  <p key={k} className="font-mono text-xs">{k}: {v > 0 ? "Take from Company" : "Pay to Company"} {fmt(Math.abs(v))}</p>
+                ))}
+                {report.ledger.personal.map((d) => (
+                  <p key={d.debtor + d.creditor} className="font-mono text-xs">{d.debtor} owes {d.creditor} {fmt(d.amount)} (personal)</p>
+                ))}
+              </div>
+              <Button data-testid="download-networth-report" onClick={downloadReport} className="w-full">Download (.txt)</Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <PinUnlock open={pinOpen} onOpenChange={setPinOpen} onUnlock={() => { setUnlocked(true); load(); }} />
     </div>

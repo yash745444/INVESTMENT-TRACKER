@@ -17,12 +17,13 @@ const EMPTY = { name: "", address: "", purchase_date: "", purchase_price: "", cu
 export default function Properties() {
   const { user } = useAuth();
   const [items, setItems] = useState(null);
+  const [people, setPeople] = useState([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(EMPTY);
 
   const load = () => api.get("/properties").then((r) => setItems(r.data)).catch(() => setItems([]));
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); api.get("/people").then((r) => setPeople(r.data)).catch(() => {}); }, []);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -81,9 +82,12 @@ export default function Properties() {
               </div>
               <div className="space-y-2">
                 <Label>Partnership (ownership %)</Label>
+                <datalist id="prop-people-list">
+                  {people.map((p) => <option key={p.id} value={p.name} />)}
+                </datalist>
                 {(form.partners || []).map((pt, i) => (
                   <div key={i} className="flex items-center gap-2">
-                    <Input data-testid={`prop-partner-name-${i}`} value={pt.name} placeholder="Partner name"
+                    <Input data-testid={`prop-partner-name-${i}`} value={pt.name} placeholder="Partner name" list="prop-people-list"
                       onChange={(e) => setForm({ ...form, partners: form.partners.map((r, j) => j === i ? { ...r, name: e.target.value } : r) })} />
                     <Input data-testid={`prop-partner-pct-${i}`} type="number" step="0.01" className="w-24 shrink-0" value={pt.percentage}
                       onChange={(e) => setForm({ ...form, partners: form.partners.map((r, j) => j === i ? { ...r, percentage: e.target.value } : r) })} />

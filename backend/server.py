@@ -35,7 +35,7 @@ client = AsyncIOMotorClient(os.environ["MONGO_URL"])
 db = client[os.environ["DB_NAME"]]
 
 JWT_ALGORITHM = "HS256"
-PARTNERS = ["Yash", "Sanjay", "Pranay", "Max"]
+PARTNERS = ["Yash Sojitra", "Sanjay Jogani", "Pranay Jetani", "Max Ma"]
 CURRENCIES = ["AUD", "USD", "INR"]
 FX_PROVIDER_URL = "https://open.er-api.com/v6/latest/AUD"
 FX_REFRESH_SECONDS = int(os.environ.get("FX_REFRESH_SECONDS", "43200"))
@@ -564,6 +564,26 @@ async def delete_cost(cid: str, user=Depends(get_current_user)):
         raise HTTPException(403, "Not allowed")
     await db.costs.delete_one({"_id": ObjectId(cid)})
     return {"ok": True}
+
+
+class BulkCostsIn(BaseModel):
+    items: List[CostIn]
+
+
+@app.post("/api/projects/{pid}/costs/bulk")
+async def add_costs_bulk(pid: str, data: BulkCostsIn, user=Depends(get_current_user)):
+    p = await get_project_access(pid, user)
+    if p.get("user_id") != user["id"]:
+        raise HTTPException(403, "Only the project owner can add records")
+    docs = []
+    for item in data.items:
+        d = item.model_dump()
+        d["project_id"] = pid
+        d["user_id"] = p["user_id"]
+        docs.append(d)
+    if docs:
+        await db.costs.insert_many(docs)
+    return {"inserted": len(docs)}
 
 
 # ---------------- loans ----------------
@@ -1182,6 +1202,13 @@ def shares_visible(request: Request) -> bool:
 
 # ---------------- dashboard ----------------
 
+def investment_native(inv):
+    if inv.get("type") == "shares" and inv.get("symbol"):
+        return round((inv.get("quantity") or 0) * (inv.get("current_price") or 0), 2), \
+            (inv.get("price_currency") or inv.get("currency", "AUD"))
+    return inv.get("amount", 0), inv.get("currency", "AUD")
+
+
 def investment_worth_aud(inv, rates):
     if inv.get("type") == "shares" and inv.get("symbol") and inv.get("quantity") and inv.get("current_price"):
         return to_aud(inv["quantity"] * inv["current_price"],
@@ -1189,8 +1216,7 @@ def investment_worth_aud(inv, rates):
     return to_aud(inv.get("amount", 0), inv.get("currency", "AUD"), rates)
 
 
-@app.get("/api/dashboard")
-async def dashboard(request: Request, user=Depends(get_current_user)):
+async def _dashboard_data(request: Request, user: dict) -> dict:
     rates_data = await rate_service.get()
     rates = rates_data["rates"]
     my_name = user.get("partner_name") or user.get("name") or "Yash"
@@ -1290,6 +1316,67 @@ async def dashboard(request: Request, user=Depends(get_current_user)):
         "ledger_net": round(ledger_net, 2),
         "rates": rates_data,
     }
+
+
+@app.get("/api/dashboard")
+async def dashboard(request: Request, user=Depends(get_current_user)):
+    return await _dashboard_data(request, user)
+
+
+@app.get("/api/report/networth")
+async def networth_report(request: Request, user=Depends(get_current_user)):
+    rates_data = await rate_service.get()
+    rates = rates_data["rates"]
+    my_name = user.get("partner_name") or user.get("name") or "Yash Sojitra"
+    dash = await _dashboard_data(request, user)
+    visible = shares_visible(request)
+
+    investments = []
+    async for i in db.investments.find({"user_id": user["id"]}):
+        i = doc_out(i)
+        if i.get("type") == "shares" and not visible:
+            investments.append({"name": "Hidden holding", "type": "shares", "native": None,
+                                "currency": "", "worth_aud": None, "redacted": True})
+            continue
+        nv, cur = investment_native(i)
+        investments.append({"name": i["name"], "type": i["type"], "native": nv, "currency": cur,
+                            "worth_aud": round(investment_worth_aud(i, rates), 2)})
+
+    properties = []
+    async for p in db.properties.find(
+            {"$or": [{"user_id": user["id"]}, {"partners.email": user["email"]}]}):
+        partners = p.get("partners", [])
+        if partners:
+            pct = next((pt.get("percentage", 0) for pt in partners
+                        if (pt.get("name") or "").lower() == my_name.lower()
+                        or pt.get("email") == user["email"]), 0)
+        else:
+            pct = 100
+        cur = p.get("currency", "AUD")
+        properties.append({"name": p["name"], "currency": cur, "value": p.get("current_value", 0),
+                           "debt": p.get("debt", 0), "rent": p.get("monthly_rent", 0),
+                           "my_percentage": pct,
+                           "my_equity_aud": round(to_aud((p.get("current_value", 0) - p.get("debt", 0)) * pct / 100, cur, rates), 2)})
+
+    loans = []
+    async for l in db.personal_loans.find({"user_id": user["id"]}):
+        l = doc_out(l)
+        m = await personal_loan_metrics(l, user)
+        loans.append({"lender": l["lender"], "amount": l["amount"], "type": l["type"],
+                      "return_amount": m["return_amount"], "total_owed": m["total_owed"]})
+
+    bal = await _ledger_balances_for(user["id"])
+    personal = await _personal_pairs_for(user["id"])
+    return {"generated_at": now_utc().isoformat(),
+            "user": {"name": user.get("name"), "email": user["email"]},
+            "base_currency": "AUD",
+            "summary": {"net_worth": dash["net_worth"],
+                        "net_worth_without_debts": dash["net_worth_without_debts"],
+                        "debts": dash["debts"], "ledger_net": dash["ledger_net"]},
+            "investments": investments, "properties": properties,
+            "projects": dash["projects"]["list"], "private_loans": loans,
+            "ledger": {"company": bal["totals"], "personal": personal},
+            "rates": rates_data["rates"]}
 
 
 # ---------------- google auth (emergent managed) ----------------
@@ -1442,6 +1529,26 @@ async def startup():
                  "investments", "properties", "feasibility"):
         await db[coll].update_many({"user_id": {"$exists": False}},
                                    {"$set": {"user_id": admin_id}})
+    # one-time name migration: short names -> full names
+    RENAME = {"Yash": "Yash Sojitra", "Sanjay": "Sanjay Jogani",
+              "Pranay": "Pranay Jetani", "Max": "Max Ma"}
+    for coll, fields in (("ledger", ["from_partner", "to_partner"]),
+                         ("contributions", ["partner"]),
+                         ("costs", ["paid_by"]),
+                         ("personal_loans", ["lender"]),
+                         ("people", ["name"])):
+        for old, new in RENAME.items():
+            for f in fields:
+                await db[coll].update_many({f: old}, {"$set": {f: new}})
+    for coll in ("projects", "properties"):
+        async for doc in db[coll].find({"partners.name": {"$in": list(RENAME)}}):
+            for pt in doc.get("partners", []):
+                if pt.get("name") in RENAME:
+                    pt["name"] = RENAME[pt["name"]]
+            await db[coll].update_one({"_id": doc["_id"]},
+                                      {"$set": {"partners": doc["partners"]}})
+    if admin.get("name") == "Yash":
+        await db.users.update_one({"_id": admin["_id"]}, {"$set": {"name": "Yash Sojitra"}})
     await rate_service.refresh()
     asyncio.create_task(fx_loop())
 

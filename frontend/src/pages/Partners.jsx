@@ -20,7 +20,7 @@ export default function Partners() {
   const [reportOpen, setReportOpen] = useState(false);
   const [report, setReport] = useState(null);
   const [form, setForm] = useState({
-    date: today(), type: "paid_on_behalf", from_partner: "Yash", to_partner: "Sanjay",
+    date: today(), type: "paid_on_behalf", from_partner: "Yash Sojitra", to_partner: "Sanjay Jogani",
     amount: "", project_id: "", note: "", lender_name: "",
   });
   const [personal, setPersonal] = useState([]);
@@ -29,13 +29,17 @@ export default function Partners() {
   const { user } = useAuth();
   const [overview, setOverview] = useState(null);
   const [selectedProfile, setSelectedProfile] = useState(null);
+  const [people, setPeople] = useState([]);
 
   const load = async () => {
     const [t, b, p, pd, ov] = await Promise.all([
       api.get("/ledger"), api.get("/ledger/balances"), api.get("/projects"), api.get("/ledger/personal"), api.get("/partner/overview"),
     ]);
     setTxns(t.data); setBalances(b.data); setProjects(p.data); setPersonal(pd.data.pairs); setOverview(ov.data);
+    api.get("/people").then((r) => setPeople(r.data)).catch(() => setPeople([]));
   };
+
+  const personOptions = [...PARTNERS, ...people.map((p) => p.name).filter((n) => !PARTNERS.includes(n))];
   useEffect(() => { load(); }, []);
 
   const submit = async (e) => {
@@ -134,12 +138,12 @@ export default function Partners() {
                   <div className="space-y-1.5"><Label>{form.type === "paid_on_behalf" ? "Paid by" : "From"}</Label>
                     <Select value={form.from_partner} onValueChange={(v) => setForm({ ...form, from_partner: v })}>
                       <SelectTrigger data-testid="txn-from-select"><SelectValue /></SelectTrigger>
-                      <SelectContent>{PARTNERS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+                      <SelectContent>{personOptions.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
                     </Select></div>
                   <div className="space-y-1.5"><Label>{form.type === "paid_on_behalf" ? "On behalf of" : "To"}</Label>
                     <Select value={form.to_partner} onValueChange={(v) => setForm({ ...form, to_partner: v })}>
                       <SelectTrigger data-testid="txn-to-select"><SelectValue /></SelectTrigger>
-                      <SelectContent>{PARTNERS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+                      <SelectContent>{personOptions.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
                     </Select></div>
                 </div>
                 )}
@@ -173,7 +177,7 @@ export default function Partners() {
         {PARTNERS.map((p) => (
           <Card key={p} data-testid={`partner-total-${p.toLowerCase()}`}>
             <CardContent className="p-4">
-              <p className="label-overline">{p}{p === "Yash" ? " (You)" : ""}</p>
+              <p className="label-overline">{p}{p === user?.name ? " (You)" : ""}</p>
               <p className={`font-mono font-semibold text-lg mt-1.5 ${(balances?.totals[p] || 0) < 0 ? "text-negative" : "text-positive"}`}>
                 {fmt(Math.abs(balances?.totals[p] || 0))}
               </p>
@@ -194,7 +198,7 @@ export default function Partners() {
                 <button key={pr.name} data-testid={`profile-card-${pr.name.toLowerCase()}`}
                   onClick={() => setSelectedProfile(pr)}
                   className="text-left rounded-lg border border-border p-4 space-y-2 card-hover">
-                  <p className="font-heading font-semibold">{pr.name}{pr.name === "Yash" && <span className="text-xs text-gold ml-1.5">(You)</span>}</p>
+                  <p className="font-heading font-semibold">{pr.name}{pr.name === user?.name && <span className="text-xs text-gold ml-1.5">(You)</span>}</p>
                   <p className="font-mono text-xs text-muted-foreground">{pr.projects.length} project{pr.projects.length !== 1 ? "s" : ""}</p>
                   <p className={`font-mono text-sm font-semibold ${pr.position < 0 ? "text-negative" : "text-positive"}`}>
                     {Math.abs(pr.position) < 0.005 ? "Settled" : pr.position > 0 ? `Take ${fmt(pr.position)}` : `Pay ${fmt(-pr.position)}`}
@@ -216,7 +220,7 @@ export default function Partners() {
                 return (
                   <div key={p} className="flex items-center justify-between rounded-lg border border-border p-3.5 gap-2"
                     data-testid={`company-position-${p.toLowerCase()}`}>
-                    <span className="text-sm font-medium shrink-0">{p}{p === "Yash" ? " (You)" : ""}</span>
+                    <span className="text-sm font-medium shrink-0">{p}{p === user?.name ? " (You)" : ""}</span>
                     {Math.abs(v) < 0.005 ? (
                       <span className="font-mono text-xs text-positive">settled</span>
                     ) : v > 0 ? (
@@ -270,8 +274,19 @@ export default function Partners() {
                     </SelectContent>
                   </Select></div>
                 <div className="space-y-1.5"><Label>Person</Label>
-                  <Input data-testid="personal-person-input" required value={pForm.person}
-                    onChange={(e) => setPForm({ ...pForm, person: e.target.value })} placeholder="e.g. Sanjay" /></div>
+                  <Select value={personOptions.includes(pForm.person) ? pForm.person : (pForm.person ? "__custom" : "")}
+                    onValueChange={(v) => setPForm({ ...pForm, person: v === "__custom" ? "" : v })}>
+                    <SelectTrigger data-testid="personal-person-select"><SelectValue placeholder="Select person" /></SelectTrigger>
+                    <SelectContent>
+                      {personOptions.map((n) => <SelectItem key={n} value={n}>{n}</SelectItem>)}
+                      <SelectItem value="__custom">Custom…</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {!personOptions.includes(pForm.person) && (
+                    <Input data-testid="personal-person-input" value={pForm.person}
+                      onChange={(e) => setPForm({ ...pForm, person: e.target.value })} placeholder="Or type a name" />
+                  )}
+                </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5"><Label>Date</Label>
                     <DatePicker testid="personal-date-input" value={pForm.date} onChange={(v) => setPForm({ ...pForm, date: v })} /></div>

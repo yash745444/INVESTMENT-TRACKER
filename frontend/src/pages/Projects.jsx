@@ -15,13 +15,14 @@ export default function Projects() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ name: "", address: "", description: "" });
   const [partnerRows, setPartnerRows] = useState([
-    { name: "Yash", percentage: 25, email: "" }, { name: "Sanjay", percentage: 25, email: "" },
-    { name: "Pranay", percentage: 25, email: "" }, { name: "Max", percentage: 25, email: "" },
+    { name: "Yash Sojitra", percentage: 25, email: "" }, { name: "Sanjay Jogani", percentage: 25, email: "" },
+    { name: "Pranay Jetani", percentage: 25, email: "" }, { name: "Max Ma", percentage: 25, email: "" },
   ]);
+  const [people, setPeople] = useState([]);
   const navigate = useNavigate();
 
   const load = () => api.get("/projects").then((r) => setProjects(r.data)).catch(() => setProjects([]));
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); api.get("/people").then((r) => setPeople(r.data)).catch(() => {}); }, []);
 
   const create = async (e) => {
     e.preventDefault();
@@ -67,11 +68,14 @@ export default function Projects() {
               </div>
               <div className="space-y-2">
                 <Label>Ownership %</Label>
+                <datalist id="people-names-list">
+                  {people.map((p) => <option key={p.id} value={p.name} />)}
+                </datalist>
                 <div className="space-y-2">
                   {partnerRows.map((row, i) => (
                     <div key={i} className="space-y-1.5">
                       <div className="flex items-center gap-2">
-                        <Input data-testid={`project-partner-name-${i}`} value={row.name} placeholder="Partner name"
+                        <Input data-testid={`project-partner-name-${i}`} value={row.name} placeholder="Partner name" list="people-names-list"
                           onChange={(e) => setPartnerRows(partnerRows.map((r, j) => j === i ? { ...r, name: e.target.value } : r))} />
                         <Input data-testid={`project-partner-pct-${i}`} type="number" step="0.01" className="w-24 shrink-0" value={row.percentage}
                           onChange={(e) => setPartnerRows(partnerRows.map((r, j) => j === i ? { ...r, percentage: e.target.value } : r))} />

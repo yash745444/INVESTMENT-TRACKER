@@ -13,5 +13,5 @@ export const fmtDate = (d) => {
 
 export const today = () => new Date().toISOString().slice(0, 10);
 
-export const PARTNERS = ["Yash", "Sanjay", "Pranay", "Max"];
+export const PARTNERS = ["Yash Sojitra", "Sanjay Jogani", "Pranay Jetani", "Max Ma"];
 export const CURRENCIES = ["AUD", "USD", "INR"];
