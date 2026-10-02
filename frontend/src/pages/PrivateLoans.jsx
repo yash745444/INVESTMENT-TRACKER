@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { DatePicker } from "../components/DatePicker";
 import { toast } from "sonner";
-import { Plus, Trash2, HandCoins } from "lucide-react";
+import { Plus, Trash2, HandCoins, Pencil } from "lucide-react";
 
 const EMPTY = { lender: "", amount: "", date: today(), type: "interest",
   annual_rate: "", project_id: "", basis_amount: "", notes: "" };
@@ -19,6 +19,7 @@ export default function PrivateLoans() {
   const [projects, setProjects] = useState([]);
   const [people, setPeople] = useState([]);
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(EMPTY);
 
   const load = async () => {
@@ -32,15 +33,18 @@ export default function PrivateLoans() {
   const submit = async (e) => {
     e.preventDefault();
     try {
-      await api.post("/personal-loans", {
+      const payload = {
         ...form,
         amount: Number(form.amount),
         annual_rate: Number(form.annual_rate) || 0,
         basis_amount: Number(form.basis_amount) || 0,
         project_id: form.type === "profit_share" ? (form.project_id || null) : null,
-      });
-      toast.success("Loan added");
+      };
+      if (editing) await api.put(`/personal-loans/${editing}`, payload);
+      else await api.post("/personal-loans", payload);
+      toast.success(editing ? "Loan updated" : "Loan added");
       setOpen(false);
+      setEditing(null);
       setForm(EMPTY);
       load();
     } catch (err) { toast.error(apiError(err)); }
@@ -57,10 +61,10 @@ export default function PrivateLoans() {
             Total owed to lenders: {fmt(totalOwed)}
           </p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setEditing(null); setForm(EMPTY); } }}>
           <DialogTrigger asChild><Button data-testid="add-pl-button"><Plus className="h-4 w-4 mr-1.5" /> Add Loan</Button></DialogTrigger>
           <DialogContent data-testid="pl-dialog">
-            <DialogHeader><DialogTitle className="font-heading">Add Private Loan</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle className="font-heading">{editing ? "Edit" : "Add"} Private Loan</DialogTitle></DialogHeader>
             <form onSubmit={submit} className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5"><Label>Lender name</Label>
@@ -133,9 +137,14 @@ export default function PrivateLoans() {
                         : `Profit share${l.computed.project_name ? ` · ${l.computed.project_name}` : ""}`}
                     </p>
                   </div>
+                  <div className="flex shrink-0">
+                  <Button variant="ghost" size="icon" data-testid={`pl-edit-${l.id}`}
+                    onClick={() => { setEditing(l.id); setForm({ lender: l.lender, amount: l.amount, date: l.date, type: l.type, annual_rate: l.annual_rate || "", project_id: l.project_id || "", basis_amount: l.basis_amount || "", notes: l.notes || "" }); setOpen(true); }}>
+                    <Pencil className="h-3.5 w-3.5" /></Button>
                   <Button variant="ghost" size="icon" data-testid={`pl-delete-${l.id}`}
                     onClick={async () => { await api.delete(`/personal-loans/${l.id}`); toast.success("Deleted"); load(); }}>
                     <Trash2 className="h-3.5 w-3.5 text-negative" /></Button>
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div><p className="label-overline">Loan</p><p className="font-mono font-medium">{fmt(l.amount)}</p></div>

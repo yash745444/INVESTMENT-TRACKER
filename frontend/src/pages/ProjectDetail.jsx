@@ -280,6 +280,7 @@ function ContributionsTab({ projectId, contributions, reload, partnerNames, read
 
 function CostsTab({ projectId, costs, reload, partnerNames, readOnly }) {
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [rows, setRows] = useState([{ date: today(), category: "Site Acquisition", description: "", amount: "", paid_by: "" }]);
   const [form, setForm] = useState({ date: today(), category: "Site Acquisition", amount: "", description: "", paid_by: "" });
@@ -299,9 +300,11 @@ function CostsTab({ projectId, costs, reload, partnerNames, readOnly }) {
   const submit = async (e) => {
     e.preventDefault();
     try {
-      await api.post(`/projects/${projectId}/costs`, { ...form, amount: Number(form.amount) });
-      toast.success("Cost added");
+      if (editing) await api.put(`/costs/${editing}`, { ...form, amount: Number(form.amount) });
+      else await api.post(`/projects/${projectId}/costs`, { ...form, amount: Number(form.amount) });
+      toast.success(editing ? "Cost updated" : "Cost added");
       setOpen(false);
+      setEditing(null);
       setForm({ date: today(), category: "Site Acquisition", amount: "", description: "", paid_by: "" });
       reload();
     } catch (err) { toast.error(apiError(err)); }
@@ -362,10 +365,10 @@ function CostsTab({ projectId, costs, reload, partnerNames, readOnly }) {
             </DialogContent>
           </Dialog>)}
           {!readOnly && (
-          <Dialog open={open} onOpenChange={setOpen}>
+          <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setEditing(null); }}>
             <DialogTrigger asChild><Button size="sm" data-testid="add-cost-button"><Plus className="h-4 w-4 mr-1" /> Add Cost</Button></DialogTrigger>
             <DialogContent data-testid="add-cost-dialog">
-              <DialogHeader><DialogTitle className="font-heading">Add Cost</DialogTitle></DialogHeader>
+              <DialogHeader><DialogTitle className="font-heading">{editing ? "Edit" : "Add"} Cost</DialogTitle></DialogHeader>
               <form onSubmit={submit} className="space-y-4">
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5"><Label>Date</Label>
@@ -403,9 +406,14 @@ function CostsTab({ projectId, costs, reload, partnerNames, readOnly }) {
                   <td className="py-2.5 pr-4 font-sans">{c.description || "—"}</td>
                   <td className="py-2.5 pr-4 font-sans">{c.paid_by || "—"}</td>
                   <td className="py-2.5 pr-4 text-negative">{fmt2(c.amount)}</td>
-                  <td className="py-2.5">{!readOnly && (<Button variant="ghost" size="icon" data-testid={`delete-cost-${c.id}`}
-                    onClick={async () => { await api.delete(`/costs/${c.id}`); toast.success("Deleted"); reload(); }}>
-                    <Trash2 className="h-3.5 w-3.5 text-negative" /></Button>)}</td>
+                  <td className="py-2.5"><div className="flex">
+                    {!readOnly && (<Button variant="ghost" size="icon" data-testid={`edit-cost-${c.id}`} title="Edit"
+                      onClick={() => { setEditing(c.id); setForm({ date: c.date, category: c.category, amount: c.amount, description: c.description || "", paid_by: c.paid_by || "" }); setOpen(true); }}>
+                      <Pencil className="h-3.5 w-3.5" /></Button>)}
+                    {!readOnly && (<Button variant="ghost" size="icon" data-testid={`delete-cost-${c.id}`}
+                      onClick={async () => { await api.delete(`/costs/${c.id}`); toast.success("Deleted"); reload(); }}>
+                      <Trash2 className="h-3.5 w-3.5 text-negative" /></Button>)}
+                  </div></td>
                 </tr>
               ))} />
           )}
@@ -417,32 +425,48 @@ function CostsTab({ projectId, costs, reload, partnerNames, readOnly }) {
 
 function LoansTab({ projectId, loans, reload, readOnly }) {
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ name: "", lender: "", type: "interest_only", annual_rate: "", term_months: "", start_date: today(), first_amount: "", first_date: today() });
 
   const submit = async (e) => {
     e.preventDefault();
     try {
-      const drawdowns = form.first_amount ? [{ date: form.first_date, amount: Number(form.first_amount), description: "Initial drawdown" }] : [];
-      await api.post(`/projects/${projectId}/loans`, {
-        name: form.name, lender: form.lender, type: form.type,
-        annual_rate: Number(form.annual_rate), term_months: Number(form.term_months),
-        start_date: form.start_date, drawdowns,
-      });
-      toast.success("Loan added");
+      if (editing) {
+        await api.put(`/loans/${editing}`, {
+          name: form.name, lender: form.lender, type: form.type,
+          annual_rate: Number(form.annual_rate), term_months: Number(form.term_months),
+          start_date: form.start_date,
+        });
+      } else {
+        const drawdowns = form.first_amount ? [{ date: form.first_date, amount: Number(form.first_amount), description: "Initial drawdown" }] : [];
+        await api.post(`/projects/${projectId}/loans`, {
+          name: form.name, lender: form.lender, type: form.type,
+          annual_rate: Number(form.annual_rate), term_months: Number(form.term_months),
+          start_date: form.start_date, drawdowns,
+        });
+      }
+      toast.success(editing ? "Loan updated — repayments recalculated" : "Loan added");
       setOpen(false);
+      setEditing(null);
       setForm({ name: "", lender: "", type: "interest_only", annual_rate: "", term_months: "", start_date: today(), first_amount: "", first_date: today() });
       reload();
     } catch (err) { toast.error(apiError(err)); }
+  };
+
+  const startEdit = (l) => {
+    setEditing(l.id);
+    setForm({ name: l.name, lender: l.lender || "", type: l.type, annual_rate: l.annual_rate, term_months: l.term_months, start_date: l.start_date, first_amount: "", first_date: today() });
+    setOpen(true);
   };
 
   return (
     <div className="space-y-5">
       <div className="flex justify-end">
         {!readOnly && (
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setEditing(null); }}>
           <DialogTrigger asChild><Button size="sm" data-testid="add-loan-button"><Plus className="h-4 w-4 mr-1" /> Add Loan</Button></DialogTrigger>
           <DialogContent data-testid="add-loan-dialog">
-            <DialogHeader><DialogTitle className="font-heading">Add Loan Facility</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle className="font-heading">{editing ? "Edit" : "Add"} Loan Facility</DialogTitle></DialogHeader>
             <form onSubmit={submit} className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5"><Label>Loan name</Label>
@@ -468,12 +492,13 @@ function LoansTab({ projectId, loans, reload, readOnly }) {
                 <div className="space-y-1.5"><Label>Start date</Label>
                   <DatePicker testid="loan-start-input" value={form.start_date} onChange={(v) => setForm({ ...form, start_date: v })} /></div>
               </div>
+              {!editing && (
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5"><Label>Initial drawdown (optional)</Label>
                   <Input data-testid="loan-first-amount-input" type="number" step="0.01" value={form.first_amount} onChange={(e) => setForm({ ...form, first_amount: e.target.value })} /></div>
                 <div className="space-y-1.5"><Label>Drawdown date</Label>
                   <DatePicker testid="loan-first-date-input" value={form.first_date} onChange={(v) => setForm({ ...form, first_date: v })} /></div>
-              </div>
+              </div>)}
               <Button data-testid="loan-submit" type="submit" className="w-full">Save Loan</Button>
             </form>
           </DialogContent>
@@ -483,23 +508,26 @@ function LoansTab({ projectId, loans, reload, readOnly }) {
       {loans.length === 0 && (
         <Card><CardContent className="p-10 text-center text-muted-foreground">No loans yet. Add a facility to track drawdowns and repayments.</CardContent></Card>
       )}
-      {loans.map((l) => <LoanCard key={l.id} loan={l} reload={reload} readOnly={readOnly} />)}
+      {loans.map((l) => <LoanCard key={l.id} loan={l} reload={reload} readOnly={readOnly} onEdit={startEdit} />)}
     </div>
   );
 }
 
-function LoanCard({ loan, reload, readOnly }) {
+function LoanCard({ loan, reload, readOnly, onEdit }) {
   const [schedule, setSchedule] = useState(null);
   const [ddOpen, setDdOpen] = useState(false);
+  const [ddEdit, setDdEdit] = useState(null);
   const [dd, setDd] = useState({ date: today(), amount: "", description: "" });
   const m = loan.metrics;
 
   const addDrawdown = async (e) => {
     e.preventDefault();
     try {
-      await api.post(`/loans/${loan.id}/drawdowns`, { ...dd, amount: Number(dd.amount) });
-      toast.success("Drawdown added — repayments updated");
+      if (ddEdit !== null) await api.put(`/loans/${loan.id}/drawdowns/${ddEdit}`, { ...dd, amount: Number(dd.amount) });
+      else await api.post(`/loans/${loan.id}/drawdowns`, { ...dd, amount: Number(dd.amount) });
+      toast.success(ddEdit !== null ? "Drawdown updated — repayments updated" : "Drawdown added — repayments updated");
       setDdOpen(false);
+      setDdEdit(null);
       setDd({ date: today(), amount: "", description: "" });
       setSchedule(null);
       reload();
@@ -524,10 +552,10 @@ function LoanCard({ loan, reload, readOnly }) {
           </div>
           <div className="flex gap-1.5">
             {!readOnly && (
-            <Dialog open={ddOpen} onOpenChange={setDdOpen}>
+            <Dialog open={ddOpen} onOpenChange={(v) => { setDdOpen(v); if (!v) setDdEdit(null); }}>
               <DialogTrigger asChild><Button size="sm" variant="outline" data-testid={`add-drawdown-${loan.id}`}><Plus className="h-3.5 w-3.5 mr-1" /> Drawdown</Button></DialogTrigger>
               <DialogContent data-testid="add-drawdown-dialog">
-                <DialogHeader><DialogTitle className="font-heading">Add Drawdown</DialogTitle></DialogHeader>
+                <DialogHeader><DialogTitle className="font-heading">{ddEdit !== null ? "Edit" : "Add"} Drawdown</DialogTitle></DialogHeader>
                 <form onSubmit={addDrawdown} className="space-y-4">
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5"><Label>Date</Label>
@@ -537,10 +565,14 @@ function LoanCard({ loan, reload, readOnly }) {
                   </div>
                   <div className="space-y-1.5"><Label>Description</Label>
                     <Input data-testid="drawdown-description-input" value={dd.description} onChange={(e) => setDd({ ...dd, description: e.target.value })} /></div>
-                  <Button data-testid="drawdown-submit" type="submit" className="w-full">Add Drawdown</Button>
+                  <Button data-testid="drawdown-submit" type="submit" className="w-full">{ddEdit !== null ? "Save Changes" : "Add Drawdown"}</Button>
                 </form>
               </DialogContent>
             </Dialog>)}
+            {!readOnly && (
+            <Button size="sm" variant="ghost" data-testid={`edit-loan-${loan.id}`} title="Edit loan" onClick={() => onEdit(loan)}>
+              <Pencil className="h-4 w-4" />
+            </Button>)}
             <Button size="sm" variant="ghost" data-testid={`toggle-schedule-${loan.id}`} onClick={toggleSchedule}>
               {schedule ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
             </Button>
@@ -562,7 +594,19 @@ function LoanCard({ loan, reload, readOnly }) {
         {loan.drawdowns?.length > 0 && (
           <div className="text-xs font-mono text-muted-foreground space-y-1">
             {loan.drawdowns.map((d, i) => (
-              <p key={i} data-testid={`drawdown-row-${loan.id}-${i}`}>· {fmtDate(d.date)} — {fmt2(d.amount)} {d.description && `(${d.description})`}</p>
+              <div key={i} className="flex items-center justify-between gap-2" data-testid={`drawdown-row-${loan.id}-${i}`}>
+                <p>· {fmtDate(d.date)} — {fmt2(d.amount)} {d.description && `(${d.description})`}</p>
+                {!readOnly && (
+                  <span className="flex shrink-0">
+                    <Button variant="ghost" size="icon" className="h-6 w-6" data-testid={`edit-drawdown-${loan.id}-${i}`} title="Edit drawdown"
+                      onClick={() => { setDdEdit(i); setDd({ date: d.date, amount: d.amount, description: d.description || "" }); setDdOpen(true); }}>
+                      <Pencil className="h-3 w-3" /></Button>
+                    <Button variant="ghost" size="icon" className="h-6 w-6" data-testid={`delete-drawdown-${loan.id}-${i}`} title="Remove drawdown"
+                      onClick={async () => { await api.delete(`/loans/${loan.id}/drawdowns/${i}`); toast.success("Drawdown removed — repayments updated"); setSchedule(null); reload(); }}>
+                      <Trash2 className="h-3 w-3 text-negative" /></Button>
+                  </span>
+                )}
+              </div>
             ))}
           </div>
         )}

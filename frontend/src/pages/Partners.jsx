@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { toast } from "sonner";
-import { Plus, Trash2, FileText } from "lucide-react";
+import { Plus, Trash2, FileText, Pencil } from "lucide-react";
 import { DatePicker } from "../components/DatePicker";
 
 export default function Partners() {
@@ -17,6 +17,7 @@ export default function Partners() {
   const [balances, setBalances] = useState(null);
   const [projects, setProjects] = useState([]);
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [report, setReport] = useState(null);
   const [form, setForm] = useState({
@@ -25,6 +26,7 @@ export default function Partners() {
   });
   const [personal, setPersonal] = useState([]);
   const [pOpen, setPOpen] = useState(false);
+  const [pEditing, setPEditing] = useState(null);
   const [pForm, setPForm] = useState({ person: "", direction: "i_paid", amount: "", date: today(), note: "" });
   const { user } = useAuth();
   const [overview, setOverview] = useState(null);
@@ -46,15 +48,18 @@ export default function Partners() {
     e.preventDefault();
     try {
       const proj = projects.find((p) => p.id === form.project_id);
-      await api.post("/ledger", {
+      const payload = {
         ...form,
         from_partner: form.type === "external" ? form.lender_name.trim() : form.from_partner,
         to_partner: form.type === "external" ? "Company" : form.to_partner,
         amount: Number(form.amount),
         project_id: form.project_id || null, project_name: proj?.name || "",
-      });
-      toast.success("Transaction recorded");
+      };
+      if (editing) await api.put(`/ledger/${editing}`, payload);
+      else await api.post("/ledger", payload);
+      toast.success(editing ? "Transaction updated" : "Transaction recorded");
       setOpen(false);
+      setEditing(null);
       setForm({ ...form, amount: "", note: "" });
       load();
     } catch (err) { toast.error(apiError(err)); }
@@ -65,14 +70,17 @@ export default function Partners() {
     try {
       const me = user?.name || "Yash";
       const other = pForm.person.trim();
-      await api.post("/ledger", {
+      const payload = {
         date: pForm.date, type: "personal",
         from_partner: pForm.direction === "i_paid" ? me : other,
         to_partner: pForm.direction === "i_paid" ? other : me,
         amount: Number(pForm.amount), note: pForm.note,
-      });
-      toast.success("Personal debt recorded");
+      };
+      if (pEditing) await api.put(`/ledger/${pEditing}`, payload);
+      else await api.post("/ledger", payload);
+      toast.success(pEditing ? "Personal debt updated" : "Personal debt recorded");
       setPOpen(false);
+      setPEditing(null);
       setPForm({ person: "", direction: "i_paid", amount: "", date: today(), note: "" });
       load();
     } catch (err) { toast.error(apiError(err)); }
@@ -114,10 +122,10 @@ export default function Partners() {
           <Button variant="outline" data-testid="report-button" onClick={openReport}>
             <FileText className="h-4 w-4 mr-1.5" /> Report
           </Button>
-          <Dialog open={open} onOpenChange={setOpen}>
+          <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setEditing(null); }}>
             <DialogTrigger asChild><Button data-testid="add-transaction-button"><Plus className="h-4 w-4 mr-1.5" /> Add Transaction</Button></DialogTrigger>
             <DialogContent data-testid="add-transaction-dialog">
-              <DialogHeader><DialogTitle className="font-heading">Add Transaction</DialogTitle></DialogHeader>
+              <DialogHeader><DialogTitle className="font-heading">{editing ? "Edit" : "Add"} Transaction</DialogTitle></DialogHeader>
               <form onSubmit={submit} className="space-y-4">
                 <div className="space-y-1.5"><Label>Type</Label>
                   <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
@@ -258,12 +266,12 @@ export default function Partners() {
             <CardTitle className="font-heading text-lg">Personal Debts</CardTitle>
             <p className="text-xs text-muted-foreground mt-1">Money paid for someone personally — outside the company pool, not tied to any project.</p>
           </div>
-          <Dialog open={pOpen} onOpenChange={setPOpen}>
+          <Dialog open={pOpen} onOpenChange={(v) => { setPOpen(v); if (!v) setPEditing(null); }}>
             <DialogTrigger asChild>
               <Button size="sm" variant="outline" data-testid="add-personal-button"><Plus className="h-4 w-4 mr-1" /> Add Personal</Button>
             </DialogTrigger>
             <DialogContent data-testid="add-personal-dialog">
-              <DialogHeader><DialogTitle className="font-heading">Add Personal Debt</DialogTitle></DialogHeader>
+              <DialogHeader><DialogTitle className="font-heading">{pEditing ? "Edit" : "Add"} Personal Debt</DialogTitle></DialogHeader>
               <form onSubmit={submitPersonal} className="space-y-4">
                 <div className="space-y-1.5"><Label>Direction</Label>
                   <Select value={pForm.direction} onValueChange={(v) => setPForm({ ...pForm, direction: v })}>
@@ -329,9 +337,19 @@ export default function Partners() {
                   <span className="font-mono text-xs text-muted-foreground">
                     {fmtDate(t.date)} · {t.from_partner} paid for {t.to_partner} · {fmt2(t.amount)}{t.note ? ` · ${t.note}` : ""}
                   </span>
+                  <span className="flex shrink-0">
+                  <Button variant="ghost" size="icon" data-testid={`edit-personal-${t.id}`}
+                    onClick={() => {
+                      const me = user?.name || "Yash";
+                      setPEditing(t.id);
+                      setPForm({ person: t.from_partner === me ? t.to_partner : t.from_partner, direction: t.from_partner === me ? "i_paid" : "they_paid", amount: t.amount, date: t.date, note: t.note || "" });
+                      setPOpen(true);
+                    }}>
+                    <Pencil className="h-3.5 w-3.5" /></Button>
                   <Button variant="ghost" size="icon" data-testid={`delete-personal-${t.id}`}
                     onClick={async () => { await api.delete(`/ledger/${t.id}`); toast.success("Deleted"); load(); }}>
                     <Trash2 className="h-3.5 w-3.5 text-negative" /></Button>
+                  </span>
                 </div>
               ))}
             </div>
@@ -367,9 +385,24 @@ export default function Partners() {
                       <td className="py-2.5 pr-4 font-sans">{t.project_name || "—"}</td>
                       <td className="py-2.5 pr-4 font-sans">{t.note || "—"}</td>
                       <td className="py-2.5 pr-4">{fmt2(t.amount)}</td>
-                      <td className="py-2.5"><Button variant="ghost" size="icon" data-testid={`delete-txn-${t.id}`}
-                        onClick={async () => { await api.delete(`/ledger/${t.id}`); toast.success("Deleted"); load(); }}>
-                        <Trash2 className="h-3.5 w-3.5 text-negative" /></Button></td>
+                      <td className="py-2.5"><div className="flex">
+                        <Button variant="ghost" size="icon" data-testid={`edit-txn-${t.id}`}
+                          onClick={() => {
+                            setEditing(t.id);
+                            setForm({
+                              date: t.date, type: t.type,
+                              from_partner: t.type === "external" ? "Yash Sojitra" : t.from_partner,
+                              to_partner: t.type === "external" ? "Sanjay Jogani" : t.to_partner,
+                              amount: t.amount, project_id: t.project_id || "", note: t.note || "",
+                              lender_name: t.type === "external" ? t.from_partner : "",
+                            });
+                            setOpen(true);
+                          }}>
+                          <Pencil className="h-3.5 w-3.5" /></Button>
+                        <Button variant="ghost" size="icon" data-testid={`delete-txn-${t.id}`}
+                          onClick={async () => { await api.delete(`/ledger/${t.id}`); toast.success("Deleted"); load(); }}>
+                          <Trash2 className="h-3.5 w-3.5 text-negative" /></Button>
+                      </div></td>
                     </tr>
                   ))}
                 </tbody>

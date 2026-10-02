@@ -8,16 +8,19 @@ import { Label } from "../components/ui/label";
 import { Card, CardContent } from "../components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { toast } from "sonner";
-import { Plus, HardHat, X, Trash2 } from "lucide-react";
+import { Plus, HardHat, X, Trash2, Pencil } from "lucide-react";
+
+const DEFAULT_PARTNERS = [
+  { name: "Yash Sojitra", percentage: 25, email: "" }, { name: "Sanjay Jogani", percentage: 25, email: "" },
+  { name: "Pranay Jetani", percentage: 25, email: "" }, { name: "Max Ma", percentage: 25, email: "" },
+];
 
 export default function Projects() {
   const [projects, setProjects] = useState(null);
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ name: "", address: "", description: "" });
-  const [partnerRows, setPartnerRows] = useState([
-    { name: "Yash Sojitra", percentage: 25, email: "" }, { name: "Sanjay Jogani", percentage: 25, email: "" },
-    { name: "Pranay Jetani", percentage: 25, email: "" }, { name: "Max Ma", percentage: 25, email: "" },
-  ]);
+  const [partnerRows, setPartnerRows] = useState(DEFAULT_PARTNERS);
   const [people, setPeople] = useState([]);
   const navigate = useNavigate();
 
@@ -27,13 +30,22 @@ export default function Projects() {
   const create = async (e) => {
     e.preventDefault();
     try {
-      await api.post("/projects", {
+      const payload = {
         ...form,
         partners: partnerRows.filter((r) => r.name.trim()).map((r) => ({ name: r.name.trim(), percentage: Number(r.percentage) || 0, email: (r.email || "").trim() })),
-      });
-      toast.success("Project created");
+      };
+      if (editing) {
+        payload.status = editing.status || "active";
+        payload.final_profit = Number(editing.final_profit) || 0;
+        await api.put(`/projects/${editing.id}`, payload);
+      } else {
+        await api.post("/projects", payload);
+      }
+      toast.success(editing ? "Project updated" : "Project created");
       setOpen(false);
+      setEditing(null);
       setForm({ name: "", address: "", description: "" });
+      setPartnerRows(DEFAULT_PARTNERS);
       load();
     } catch (err) {
       toast.error(apiError(err));
@@ -44,12 +56,12 @@ export default function Projects() {
     <div className="space-y-6" data-testid="projects-page">
       <div className="flex items-center justify-between">
         <h1 className="font-heading font-bold text-2xl sm:text-3xl tracking-tight">Construction Projects</h1>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setEditing(null); setForm({ name: "", address: "", description: "" }); setPartnerRows(DEFAULT_PARTNERS); } }}>
           <DialogTrigger asChild>
             <Button data-testid="new-project-button"><Plus className="h-4 w-4 mr-1.5" /> New Project</Button>
           </DialogTrigger>
           <DialogContent data-testid="new-project-dialog">
-            <DialogHeader><DialogTitle className="font-heading">New Project</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle className="font-heading">{editing ? "Edit" : "New"} Project</DialogTitle></DialogHeader>
             <form onSubmit={create} className="space-y-4">
               <div className="space-y-1.5">
                 <Label>Project name</Label>
@@ -102,7 +114,7 @@ export default function Projects() {
                   </p>
                 </div>
               </div>
-              <Button data-testid="project-create-submit" type="submit" className="w-full">Create Project</Button>
+              <Button data-testid="project-create-submit" type="submit" className="w-full">{editing ? "Save Changes" : "Create Project"}</Button>
             </form>
           </DialogContent>
         </Dialog>
@@ -128,6 +140,18 @@ export default function Projects() {
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     {p.shared && <span className="text-[10px] font-mono px-2 py-0.5 rounded-full border text-gold" style={{ borderColor: "hsl(var(--gold))" }} data-testid={`project-shared-${p.id}`}>Shared</span>}
+                    {!p.shared && (
+                      <Button variant="ghost" size="icon" data-testid={`edit-project-${p.id}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditing(p);
+                          setForm({ name: p.name, address: p.address || "", description: p.description || "" });
+                          setPartnerRows(p.partners?.length ? p.partners.map((pt) => ({ name: pt.name, percentage: pt.percentage, email: pt.email || "" })) : [{ name: "", percentage: 0, email: "" }]);
+                          setOpen(true);
+                        }}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    )}
                     {!p.shared && (
                       <Button variant="ghost" size="icon" data-testid={`delete-project-${p.id}`}
                         onClick={async (e) => {

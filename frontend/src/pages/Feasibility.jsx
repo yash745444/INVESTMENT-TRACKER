@@ -7,7 +7,7 @@ import { Label } from "../components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { toast } from "sonner";
-import { Plus, Trash2, CheckCircle2, XCircle, Calculator } from "lucide-react";
+import { Plus, Trash2, CheckCircle2, XCircle, Calculator, Pencil } from "lucide-react";
 
 const PROJECT_TYPES = [
   ["single_dwelling", "Single Dwelling"],
@@ -57,6 +57,7 @@ function compute(f) {
 export default function Feasibility() {
   const [studies, setStudies] = useState(null);
   const [form, setForm] = useState(EMPTY);
+  const [editing, setEditing] = useState(null);
   const [showForm, setShowForm] = useState(false);
 
   const load = () => api.get("/feasibility").then((r) => setStudies(r.data)).catch(() => setStudies([]));
@@ -69,8 +70,10 @@ export default function Feasibility() {
     try {
       const payload = { ...form };
       Object.keys(payload).forEach((k) => { if (k !== "name") payload[k] = Number(payload[k]) || 0; });
-      await api.post("/feasibility", payload);
-      toast.success("Feasibility study saved");
+      if (editing) await api.put(`/feasibility/${editing}`, payload);
+      else await api.post("/feasibility", payload);
+      toast.success(editing ? "Feasibility study updated" : "Feasibility study saved");
+      setEditing(null);
       setForm(EMPTY);
       setShowForm(false);
       load();
@@ -81,7 +84,7 @@ export default function Feasibility() {
     <div className="space-y-6" data-testid="feasibility-page">
       <div className="flex items-center justify-between">
         <h1 className="font-heading font-bold text-2xl sm:text-3xl tracking-tight">Project Feasibility</h1>
-        <Button data-testid="new-study-button" onClick={() => setShowForm(!showForm)}>
+        <Button data-testid="new-study-button" onClick={() => { setEditing(null); setForm(EMPTY); setShowForm(!showForm); }}>
           <Plus className="h-4 w-4 mr-1.5" /> New Study
         </Button>
       </div>
@@ -129,7 +132,7 @@ export default function Feasibility() {
                         onChange={(e) => setForm({ ...form, expected_revenue: e.target.value })} placeholder="0" /></div>
                   </div>
                 </div>
-                <Button data-testid="fs-save-button" type="submit" className="w-full">Save Study</Button>
+                <Button data-testid="fs-save-button" type="submit" className="w-full">{editing ? "Update Study" : "Save Study"}</Button>
               </form>
             </CardContent>
           </Card>
@@ -181,6 +184,16 @@ export default function Feasibility() {
                     {s.computed.feasible
                       ? <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-secondary text-positive">FEASIBLE</span>
                       : <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-secondary text-negative">NOT FEASIBLE</span>}
+                    <Button variant="ghost" size="icon" data-testid={`fs-edit-${s.id}`}
+                      onClick={() => {
+                        setEditing(s.id);
+                        const f = { ...EMPTY };
+                        Object.keys(EMPTY).forEach((k) => { if (s[k] !== undefined && s[k] !== null) f[k] = s[k]; });
+                        setForm(f);
+                        setShowForm(true);
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}>
+                      <Pencil className="h-3.5 w-3.5" /></Button>
                     <Button variant="ghost" size="icon" data-testid={`fs-delete-${s.id}`}
                       onClick={async () => { await api.delete(`/feasibility/${s.id}`); toast.success("Deleted"); load(); }}>
                       <Trash2 className="h-3.5 w-3.5 text-negative" /></Button>

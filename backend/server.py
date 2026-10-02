@@ -557,6 +557,15 @@ async def add_cost(pid: str, data: CostIn, user=Depends(get_current_user)):
     return doc_out(await db.costs.find_one({"_id": res.inserted_id}))
 
 
+@app.put("/api/costs/{cid}")
+async def update_cost(cid: str, data: CostIn, user=Depends(get_current_user)):
+    c = await db.costs.find_one({"_id": ObjectId(cid)})
+    if not c or c.get("user_id") != user["id"]:
+        raise HTTPException(403, "Not allowed")
+    await db.costs.update_one({"_id": ObjectId(cid)}, {"$set": data.model_dump()})
+    return doc_out(await db.costs.find_one({"_id": ObjectId(cid)}))
+
+
 @app.delete("/api/costs/{cid}")
 async def delete_cost(cid: str, user=Depends(get_current_user)):
     c = await db.costs.find_one({"_id": ObjectId(cid)})
@@ -645,6 +654,7 @@ async def add_loan(pid: str, data: LoanIn, user=Depends(get_current_user)):
 async def update_loan(lid: str, data: LoanIn, user=Depends(get_current_user)):
     await get_loan_checked(lid, user, write=True)
     doc = data.model_dump()
+    doc.pop("drawdowns", None)  # drawdowns managed via dedicated endpoints; never wiped by edits
     await db.loans.update_one({"_id": ObjectId(lid)}, {"$set": doc})
     l = doc_out(await db.loans.find_one({"_id": ObjectId(lid)}))
     l["metrics"] = loan_metrics(l)
@@ -666,6 +676,30 @@ async def add_drawdown(lid: str, data: DrawdownIn, user=Depends(get_current_user
     l = doc_out(await db.loans.find_one({"_id": ObjectId(lid)}))
     l["metrics"] = loan_metrics(l)
     return l
+
+
+@app.put("/api/loans/{lid}/drawdowns/{idx}")
+async def update_drawdown(lid: str, idx: int, data: DrawdownIn, user=Depends(get_current_user)):
+    l = await get_loan_checked(lid, user, write=True)
+    dds = l.get("drawdowns", [])
+    if idx < 0 or idx >= len(dds):
+        raise HTTPException(404, "Drawdown not found")
+    dds[idx] = data.model_dump()
+    await db.loans.update_one({"_id": ObjectId(lid)}, {"$set": {"drawdowns": dds}})
+    out = doc_out(await db.loans.find_one({"_id": ObjectId(lid)}))
+    out["metrics"] = loan_metrics(out)
+    return out
+
+
+@app.delete("/api/loans/{lid}/drawdowns/{idx}")
+async def delete_drawdown(lid: str, idx: int, user=Depends(get_current_user)):
+    l = await get_loan_checked(lid, user, write=True)
+    dds = l.get("drawdowns", [])
+    if idx < 0 or idx >= len(dds):
+        raise HTTPException(404, "Drawdown not found")
+    dds.pop(idx)
+    await db.loans.update_one({"_id": ObjectId(lid)}, {"$set": {"drawdowns": dds}})
+    return {"ok": True}
 
 
 @app.get("/api/loans/{lid}/schedule")
@@ -706,6 +740,19 @@ async def add_ledger(data: LedgerIn, user=Depends(get_current_user)):
     doc["created_at"] = now_utc().isoformat()
     res = await db.ledger.insert_one(doc)
     return doc_out(await db.ledger.find_one({"_id": res.inserted_id}))
+
+
+@app.put("/api/ledger/{tid}")
+async def update_ledger(tid: str, data: LedgerIn, user=Depends(get_current_user)):
+    t = await db.ledger.find_one({"_id": ObjectId(tid)})
+    if not t or t.get("user_id") != user["id"]:
+        raise HTTPException(403, "Not allowed")
+    if data.from_partner == data.to_partner:
+        raise HTTPException(400, "Partners must be different")
+    if data.type not in ("paid_on_behalf", "settlement", "personal", "external"):
+        raise HTTPException(400, "Invalid transaction type")
+    await db.ledger.update_one({"_id": ObjectId(tid)}, {"$set": data.model_dump()})
+    return doc_out(await db.ledger.find_one({"_id": ObjectId(tid)}))
 
 
 @app.delete("/api/ledger/{tid}")
@@ -955,6 +1002,27 @@ async def add_personal_loan(data: PersonalLoanIn, user=Depends(get_current_user)
     doc["created_at"] = now_utc().isoformat()
     res = await db.personal_loans.insert_one(doc)
     d = doc_out(await db.personal_loans.find_one({"_id": res.inserted_id}))
+    d["computed"] = await personal_loan_metrics(d, user)
+    return d
+
+
+@app.put("/api/personal-loans/{lid}")
+async def update_personal_loan(lid: str, data: PersonalLoanIn, user=Depends(get_current_user)):
+    existing = await db.personal_loans.find_one({"_id": ObjectId(lid), "user_id": user["id"]})
+    if not existing:
+        raise HTTPException(404, "Loan not found")
+    if data.type not in ("interest", "profit_share"):
+        raise HTTPException(400, "type must be interest or profit_share")
+    if data.type == "profit_share" and not (data.project_id or data.basis_amount):
+        raise HTTPException(400, "Profit-share loans need a linked project or a basis amount")
+    doc = data.model_dump()
+    doc["project_name"] = ""
+    if data.project_id:
+        proj = await db.projects.find_one({"_id": ObjectId(data.project_id)})
+        if proj:
+            doc["project_name"] = proj.get("name", "")
+    await db.personal_loans.update_one({"_id": ObjectId(lid)}, {"$set": doc})
+    d = doc_out(await db.personal_loans.find_one({"_id": ObjectId(lid)}))
     d["computed"] = await personal_loan_metrics(d, user)
     return d
 
@@ -1488,6 +1556,17 @@ async def add_feasibility(data: FeasibilityIn, user=Depends(get_current_user)):
     doc["created_at"] = now_utc().isoformat()
     res = await db.feasibility.insert_one(doc)
     return doc_out(await db.feasibility.find_one({"_id": res.inserted_id}))
+
+
+@app.put("/api/feasibility/{fid}")
+async def update_feasibility(fid: str, data: FeasibilityIn, user=Depends(get_current_user)):
+    existing = await db.feasibility.find_one({"_id": ObjectId(fid), "user_id": user["id"]})
+    if not existing:
+        raise HTTPException(404, "Study not found")
+    doc = data.model_dump()
+    doc["computed"] = compute_feasibility(doc)
+    await db.feasibility.update_one({"_id": ObjectId(fid)}, {"$set": doc})
+    return doc_out(await db.feasibility.find_one({"_id": ObjectId(fid)}))
 
 
 @app.delete("/api/feasibility/{fid}")
