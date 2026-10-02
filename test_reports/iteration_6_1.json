@@ -1,0 +1,20 @@
+{
+  "summary": "Iteration 6.1 (editable contributions) fully verified. Backend 3/3 pytest pass: PUT /api/contributions/{cid} updates amount+date+partner+description and returns updated doc; unauth session gets 401/403; non-existent id gets 403 (same owner-check path). Frontend end-to-end on MAISON 7 project: Added TEST_EDIT_UI $1,000 contribution → clicked edit-contribution-{cid} → dialog title changed from 'Add Contribution' to 'Edit Contribution' and prefilled amount=1000, description=TEST_EDIT_UI → changed to 2500/TEST_EDIT_UI_UPDATED → saved → row shows '$2,500.00' + updated description → Contributions stat card reflected the change → duplicate-contribution-{cid} still works (prefills amount+description with current values and partner, title stays 'Add Contribution') → delete-contribution-{cid} removes the row with 'Deleted' toast. Existing 9 MAISON 7 partner contributions ($67,000 each = $603,000 total) untouched after cleanup. Owner-only gate confirmed in backend code (c.user_id != user.id → 403); member edit-button hidden path (!readOnly guard) confirmed by code review in ProjectDetail.jsx line 265.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_iteration6_1.py", "/app/test_reports/pytest/iteration6_1.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "ProjectDetail.jsx ContributionsTab.submit does not reset editing state in the catch branch — if PUT fails the dialog closes via onOpenChange only when user clicks outside; minor, non-blocking.",
+    "Duplicate button handler does not clear 'editing' before opening dialog. If user clicks Edit then (without closing) clicks Duplicate on another row, state transitions correctly because setOpen already true and onOpenChange only fires on close — but the duplicate action will send a PUT to the previously-edited id instead of POST. Low-probability but worth setEditing(null) in the duplicate onClick for safety.",
+    "Backend update_contribution does not validate ObjectId format — invalid hex string will raise bson.errors.InvalidId → 500 instead of 400/404. Consider try/except around ObjectId(cid)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration6_1.py"],
+  "success_rate": {"backend": "100% (3/3)", "frontend": "100% (edit + duplicate + delete flows verified)"},
+  "test_credentials": "yash.sojitra34@gmail.com / Yash@2026 ; Shares PIN 2468",
+  "seed_data_creation": "TEST_EDIT_61 and TEST_EDIT_UI contributions created on MAISON 7 project and cleaned up after each test. No residual test data.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Edit flow via PUT /api/contributions/{cid} works. Dialog reuses the same component with editing state; title switches via ternary {editing ? 'Edit' : 'Add'}. Duplicate button opens same dialog in Add mode (editing stays null since duplicate handler doesn't set it). Owner-only gate relies on c.user_id == user.id — correct for admin and blocks members on shared projects (edit button also hidden for them via !readOnly).",
+  "rca of the issue": "n/a — feature works as specified."
+}

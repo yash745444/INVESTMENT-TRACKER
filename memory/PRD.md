@@ -85,7 +85,7 @@ eToro has NO public API for portfolio sync. Shares holdings are entered once (sy
 - People page (/people, admin-only, backend-enforced): individual profiles — name, email, per-section visibility toggles (projects/properties/debts/loans); profile dialog aggregates position, projects, properties, personal debts, private loans
 - Partner overview: admin sees profiles for core 4 + all people; linked partners get self-only view filtered by admin-set visibility flags
 - Members can add their OWN contributions on shared projects (name locked, enforced server-side); everything else view-only for them; their private data never visible to admin
-- Contributions: duplicate button per row (prefills dialog, just switch partner)
+- Contributions: duplicate button per row (prefills dialog, just switch partner); edit button per row (PUT /api/contributions/{cid}, owner-only) — amounts editable after creation
 - Testing: iteration_6 — 13/14 backend (1 spec gap now fixed), 100% UI flows; reported property-share bug verified fixed at API + UI
 
 ## Backlog

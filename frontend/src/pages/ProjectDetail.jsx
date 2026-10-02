@@ -260,7 +260,7 @@ function ContributionsTab({ projectId, contributions, reload, partnerNames, read
                 <td className="py-2.5">
                   <div className="flex">
                     <Button variant="ghost" size="icon" data-testid={`duplicate-contribution-${c.id}`} title="Duplicate (change partner)"
-                      onClick={() => { setForm({ date: today(), partner: memberPartner || c.partner, amount: c.amount, description: c.description || "" }); setOpen(true); }}>
+                      onClick={() => { setEditing(null); setForm({ date: today(), partner: memberPartner || c.partner, amount: c.amount, description: c.description || "" }); setOpen(true); }}>
                       <Copy className="h-3.5 w-3.5" /></Button>
                     {!readOnly && (<Button variant="ghost" size="icon" data-testid={`edit-contribution-${c.id}`} title="Edit"
                       onClick={() => { setEditing(c.id); setForm({ date: c.date, partner: c.partner, amount: c.amount, description: c.description || "" }); setOpen(true); }}>
