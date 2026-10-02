@@ -202,6 +202,7 @@ class ProjectIn(BaseModel):
     status: Optional[str] = "active"
     partners: List[dict] = []  # [{name, percentage, email?}]
     final_profit: float = 0  # owner's share of project profit when finished
+    current_value: float = 0  # estimated current project value (as at)
 
 
 class ContributionIn(BaseModel):
@@ -521,6 +522,34 @@ async def add_contribution(pid: str, data: ContributionIn, user=Depends(get_curr
     doc = data.model_dump(); doc["project_id"] = pid; doc["user_id"] = p["user_id"]
     res = await db.contributions.insert_one(doc)
     return doc_out(await db.contributions.find_one({"_id": res.inserted_id}))
+
+
+class SplitContributionIn(BaseModel):
+    date: str
+    amount: float
+    description: Optional[str] = ""
+
+
+@app.post("/api/projects/{pid}/contributions/split")
+async def add_contribution_split(pid: str, data: SplitContributionIn, user=Depends(get_current_user)):
+    p = await get_project_access(pid, user)
+    if p.get("user_id") != user["id"]:
+        raise HTTPException(403, "Only the project owner can add company contributions")
+    partners = [pt for pt in p.get("partners", []) if pt.get("percentage", 0) > 0]
+    if not partners:
+        raise HTTPException(400, "Project has no partners with ownership percentages")
+    docs = []
+    allocated = 0.0
+    for i, pt in enumerate(partners):
+        amt = round(data.amount * pt["percentage"] / 100, 2)
+        if i == len(partners) - 1:
+            amt = round(data.amount - allocated, 2)  # remainder to last partner so total stays exact
+        allocated += amt
+        docs.append({"date": data.date, "partner": pt["name"], "amount": amt,
+                     "description": f"{data.description or 'Company contribution'} (company split {pt['percentage']}%)",
+                     "project_id": pid, "user_id": p["user_id"]})
+    await db.contributions.insert_many(docs)
+    return {"inserted": len(docs), "total": round(allocated, 2)}
 
 
 @app.put("/api/contributions/{cid}")

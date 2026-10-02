@@ -19,7 +19,7 @@ export default function Projects() {
   const [projects, setProjects] = useState(null);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({ name: "", address: "", description: "" });
+  const [form, setForm] = useState({ name: "", address: "", description: "", current_value: "" });
   const [partnerRows, setPartnerRows] = useState(DEFAULT_PARTNERS);
   const [people, setPeople] = useState([]);
   const navigate = useNavigate();
@@ -33,6 +33,7 @@ export default function Projects() {
       const payload = {
         ...form,
         partners: partnerRows.filter((r) => r.name.trim()).map((r) => ({ name: r.name.trim(), percentage: Number(r.percentage) || 0, email: (r.email || "").trim() })),
+        current_value: Number(form.current_value) || 0,
       };
       if (editing) {
         payload.status = editing.status || "active";
@@ -44,7 +45,7 @@ export default function Projects() {
       toast.success(editing ? "Project updated" : "Project created");
       setOpen(false);
       setEditing(null);
-      setForm({ name: "", address: "", description: "" });
+      setForm({ name: "", address: "", description: "", current_value: "" });
       setPartnerRows(DEFAULT_PARTNERS);
       load();
     } catch (err) {
@@ -60,7 +61,7 @@ export default function Projects() {
           <DialogTrigger asChild>
             <Button data-testid="new-project-button"><Plus className="h-4 w-4 mr-1.5" /> New Project</Button>
           </DialogTrigger>
-          <DialogContent data-testid="new-project-dialog">
+          <DialogContent className="max-h-[85vh] overflow-y-auto" data-testid="new-project-dialog">
             <DialogHeader><DialogTitle className="font-heading">{editing ? "Edit" : "New"} Project</DialogTitle></DialogHeader>
             <form onSubmit={create} className="space-y-4">
               <div className="space-y-1.5">
@@ -77,6 +78,11 @@ export default function Projects() {
                 <Label>Description</Label>
                 <Input data-testid="project-description-input" value={form.description}
                   onChange={(e) => setForm({ ...form, description: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Current project value (AUD, as at now)</Label>
+                <Input data-testid="project-value-input" type="number" step="0.01" value={form.current_value}
+                  onChange={(e) => setForm({ ...form, current_value: e.target.value })} placeholder="e.g. 5200000" />
               </div>
               <div className="space-y-2">
                 <Label>Ownership %</Label>
@@ -145,7 +151,7 @@ export default function Projects() {
                         onClick={(e) => {
                           e.stopPropagation();
                           setEditing(p);
-                          setForm({ name: p.name, address: p.address || "", description: p.description || "" });
+                          setForm({ name: p.name, address: p.address || "", description: p.description || "", current_value: p.current_value || "" });
                           setPartnerRows(p.partners?.length ? p.partners.map((pt) => ({ name: pt.name, percentage: pt.percentage, email: pt.email || "" })) : [{ name: "", percentage: 0, email: "" }]);
                           setOpen(true);
                         }}>
@@ -175,6 +181,8 @@ export default function Projects() {
                     <p className="font-mono font-medium text-negative">{fmt(p.totals.outstanding)}</p></div>
                   <div><p className="label-overline">Repayment/mo</p>
                     <p className="font-mono font-medium">{fmt(p.totals.monthly_repayment)}</p></div>
+                  <div><p className="label-overline">Project Value</p>
+                    <p className="font-mono font-medium text-gold" data-testid={`project-value-${p.id}`}>{p.current_value ? fmt(p.current_value) : "—"}</p></div>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {p.partners?.map((pt) => (

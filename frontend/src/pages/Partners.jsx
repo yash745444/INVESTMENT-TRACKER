@@ -170,7 +170,7 @@ export default function Partners() {
                   </Select></div>
                 <div className="space-y-1.5"><Label>Note</Label>
                   <Input data-testid="txn-note-input" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="e.g. Paid council fees for Sanjay" /></div>
-                <Button data-testid="txn-submit" type="submit" className="w-full">Save Transaction</Button>
+                <Button data-testid="txn-submit" type="submit" className="w-full">{editing ? "Save Changes" : "Save Transaction"}</Button>
               </form>
             </DialogContent>
           </Dialog>
@@ -305,7 +305,7 @@ export default function Partners() {
                 <div className="space-y-1.5"><Label>Note</Label>
                   <Input data-testid="personal-note-input" value={pForm.note}
                     onChange={(e) => setPForm({ ...pForm, note: e.target.value })} placeholder="e.g. Paid his car rego" /></div>
-                <Button data-testid="personal-submit" type="submit" className="w-full">Save</Button>
+                <Button data-testid="personal-submit" type="submit" className="w-full">{pEditing ? "Save Changes" : "Save"}</Button>
               </form>
             </DialogContent>
           </Dialog>

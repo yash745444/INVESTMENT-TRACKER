@@ -1,0 +1,31 @@
+{
+  "summary": "Iteration 8 — comprehensive verification of the new edit capability across projects/costs/loans/drawdowns/ledger/private-loans/feasibility. Backend pytest: 13/13 PASS on /app/backend/tests/test_iteration8.py covering PUT /api/projects (critical: final_profit preserved end-to-end), PUT /api/costs/{id}, PUT /api/loans/{id} (metrics recalc + drawdowns preserved even when payload sends drawdowns:[] because server.py pops drawdowns before $set), PUT+DELETE /api/loans/{lid}/drawdowns/{idx} (metrics recalc; 404 on bad index), PUT /api/ledger/{tid} (same-partner validation enforced), PUT /api/personal-loans/{lid} (interest accrual and profit_share basis_amount edit both recompute 'computed' block correctly), PUT /api/feasibility/{fid} (computed.total_cost recalculates on land_cost change), and 403/404 negatives. Frontend live preview URL end-to-end flows: logged in as Yash Sojitra; on MAISON 7 → Loans tab, edit-loan-<id> button opens 'Edit Loan Facility' dialog prefilled (34 CADMAN / NAB / Interest-only / 7.35% / 36 / 14 Oct 2026) and importantly does NOT show Initial drawdown fields; changed rate 7.35→10 → card re-rendered showing '10% p.a.' and Repayment/mo $20,000.00 (= 2.4M*10%/12 ✓), Drawn $2,400,000 preserved; reverted to 7.35; edit-drawdown-<lid>-<idx> opens dialog with amount prefilled 2400000 and submit button text 'Save Changes' in edit mode; after editing a loan then clicking 'Add Loan' the form state reset to empty (name='', rate=''); CRITICAL profit preservation flow — POSTed final_profit=500000 on MAISON 7, then UI-edited project name via edit-project-<id> → PUT /api/projects returned final_profit still 500000 (verified via GET /api/projects); cleanup restored name='MAISON 7' and final_profit=0; toast 'Project updated' displayed; Private Loans page shows pl-edit-<id> with amount/lender prefilled on open. Full test files added as regression suite.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Edit Project dialog (MAISON 7 — 9 partners)", "issues": ["Dialog overflows 1080p viewport; the 'Save Changes' submit button is below the fold. Dialog body is scrollable so a human user can reach it, but the modal would benefit from max-height: 85vh + overflow-y: auto on DialogContent so the primary action stays visible."]},
+      {"screen": "Edit dialog button labels", "issues": ["Minor UX inconsistency: Edit Loan dialog submit still says 'Save Loan' (not 'Save Changes'), Cost dialog says 'Save', Private Loan says 'Save Loan', Ledger Txn says 'Save Transaction'. Only Drawdown and Feasibility toggle their label (to 'Save Changes' / 'Update Study') in edit mode. Consider matching Projects/Drawdown/Feasibility pattern across all edit dialogs."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iteration8.py", "/app/test_reports/pytest/iteration8.xml"],
+  "action_items": [
+    "Low priority UX: make all edit dialog submit buttons use 'Save Changes' label in edit mode for consistency (currently only Drawdown & Feasibility do so).",
+    "Low priority a11y/UX: cap DialogContent max-height to 85vh so the submit button stays visible on projects with many partners."
+  ],
+  "critical_code_review_comments": [
+    "server.py now 1638 lines — long overdue for a split into project/loan/cost/ledger/feasibility/report routers (code quality, not a bug).",
+    "LoanIn.drawdowns default is []; without the explicit `doc.pop('drawdowns', None)` on PUT /api/loans/{lid} the previous drawdowns would be wiped. The server correctly pops them (line 657) — well handled. Add a code comment or test guard so a future refactor doesn't regress.",
+    "PUT /api/projects relies on frontend always sending final_profit back; because ProjectIn.final_profit defaults to 0, forgetting to include it in a future client would silently wipe the stored profit. Safer approach: convert to PATCH semantics or compute update dict from only the explicit request fields (exclude_unset=True) and merge with existing.",
+    "No PUT endpoint tested for /api/investments/{id} or /api/properties/{id} in this iteration (regression claim in prompt covered by prior iterations). Confirmed those routes exist in server.py."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration8.py"],
+  "success_rate": {"backend": "100% (13/13)", "frontend": "100% on tested edit flows"},
+  "test_credentials": "yash.sojitra34@gmail.com / Yash@2026",
+  "seed_data_creation": "Backend tests create+delete a TEST_ITER8_PROJ_<ts> project (with final_profit=500000, a TEST_LOAN with one drawdown, test costs/ledger/personal-loans/feasibility) — all cleaned up via fixture teardown or inline delete. Frontend test transiently set MAISON 7 final_profit=500000 and name 'MAISON 7 TEST_EDIT' then reverted to final_profit=0 and name='MAISON 7'. Loan rate briefly changed to 10% then reverted to 7.35% on 34 CADMAN. All real data (670k contributions, 9 partners, 2 loans, $4.96M outstanding) intact.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 8 complete, all edit endpoints verified both API and UI. New regression file: /app/backend/tests/test_iteration8.py. MAISON 7 PID: 6abded14ba052cd1f3f8dd4c. Admin remains yash.sojitra34@gmail.com / Yash@2026. Edit submit-button labels per dialog: Projects='Save Changes', Loan='Save Loan', Cost='Save', Drawdown='Save Changes' (edit) / 'Add Drawdown' (new), Private Loan='Save Loan', Txn='Save Transaction', Personal entry (Partners page personal section) edit label TBD if main agent extends labels, Feasibility='Update Study' (edit) / 'Save Study' (new). edit-cost/edit-txn/edit-personal buttons exist in code but no cost/txn/personal entries in MAISON 7 at time of test, so buttons rendered 0 in the live UI — backend PUT paths are verified via pytest instead.",
+  "rca of the issue": "n/a — no bugs found."
+}

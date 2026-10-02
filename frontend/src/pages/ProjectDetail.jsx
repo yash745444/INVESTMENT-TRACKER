@@ -74,13 +74,14 @@ export default function ProjectDetail() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         {[
           ["Contributions", totalContrib, "pd-stat-contributions"],
           ["Costs Incurred", totalCosts, "pd-stat-costs"],
           ["Cash Position", totalContrib + totalDrawn - totalCosts, "pd-stat-cash"],
           ["Loan Outstanding", totalOutstanding, "pd-stat-outstanding"],
           ["Repayment / mo", totalMonthly, "pd-stat-monthly"],
+          ["Project Value", project.current_value || 0, "pd-stat-value"],
         ].map(([label, val, tid]) => (
           <Card key={tid} data-testid={tid}>
             <CardContent className="p-4">
@@ -175,7 +176,7 @@ export default function ProjectDetail() {
         </TabsContent>
 
         <TabsContent value="contributions" className="mt-5">
-          <ContributionsTab projectId={id} contributions={contributions} reload={load} partnerNames={partnerNames} readOnly={readOnly} memberPartner={memberPartner} />
+          <ContributionsTab projectId={id} contributions={contributions} reload={load} partnerNames={partnerNames} partners={project.partners || []} readOnly={readOnly} memberPartner={memberPartner} />
         </TabsContent>
         <TabsContent value="costs" className="mt-5">
           <CostsTab projectId={id} costs={costs} reload={load} partnerNames={partnerNames} readOnly={readOnly} />
@@ -201,7 +202,7 @@ function DataTable({ head, rows, testid }) {
   );
 }
 
-function ContributionsTab({ projectId, contributions, reload, partnerNames, readOnly, memberPartner }) {
+function ContributionsTab({ projectId, contributions, reload, partnerNames, partners, readOnly, memberPartner }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ date: today(), partner: partnerNames?.[0] || "", amount: "", description: "" });
@@ -209,6 +210,14 @@ function ContributionsTab({ projectId, contributions, reload, partnerNames, read
   const submit = async (e) => {
     e.preventDefault();
     try {
+      if (!editing && !memberPartner && form.partner === "__company") {
+        const r = await api.post(`/projects/${projectId}/contributions/split`, { date: form.date, amount: Number(form.amount), description: form.description });
+        toast.success(`Company contribution split across ${r.data.inserted} partners`);
+        setOpen(false);
+        setForm({ date: today(), partner: partnerNames?.[0] || "", amount: "", description: "" });
+        reload();
+        return;
+      }
       const payload = { ...form, partner: memberPartner || form.partner, amount: Number(form.amount) };
       if (editing) await api.put(`/contributions/${editing}`, payload);
       else await api.post(`/projects/${projectId}/contributions`, payload);
@@ -236,14 +245,30 @@ function ContributionsTab({ projectId, contributions, reload, partnerNames, read
                 <div className="space-y-1.5"><Label>Partner</Label>
                   <Select value={memberPartner || form.partner} onValueChange={(v) => setForm({ ...form, partner: v })} disabled={!!memberPartner}>
                     <SelectTrigger data-testid="contribution-partner-select"><SelectValue /></SelectTrigger>
-                    <SelectContent>{partnerNames.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+                    <SelectContent>
+                      {partnerNames.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                      {!editing && !memberPartner && partners.length > 0 && (
+                        <SelectItem value="__company" data-testid="contribution-company-option">Company — split by ownership %</SelectItem>
+                      )}
+                    </SelectContent>
                   </Select></div>
               </div>
+              {form.partner === "__company" && Number(form.amount) > 0 && (
+                <div className="rounded-lg border border-border p-3 space-y-1" data-testid="company-split-preview">
+                  <p className="label-overline">Split preview</p>
+                  {partners.filter((pt) => pt.percentage > 0).map((pt) => (
+                    <div key={pt.name} className="flex justify-between text-xs font-mono" data-testid={`split-preview-${pt.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>
+                      <span>{pt.name} ({pt.percentage}%)</span>
+                      <span>{fmt2(Number(form.amount) * pt.percentage / 100)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="space-y-1.5"><Label>Amount (AUD)</Label>
                 <Input data-testid="contribution-amount-input" type="number" step="0.01" required value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></div>
               <div className="space-y-1.5"><Label>Description</Label>
                 <Input data-testid="contribution-description-input" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="e.g. 10% Deposit" /></div>
-              <Button data-testid="contribution-submit" type="submit" className="w-full">Save</Button>
+              <Button data-testid="contribution-submit" type="submit" className="w-full">{editing ? "Save Changes" : "Save"}</Button>
             </form>
           </DialogContent>
         </Dialog>)}
@@ -390,7 +415,7 @@ function CostsTab({ projectId, costs, reload, partnerNames, readOnly }) {
                 </div>
                 <div className="space-y-1.5"><Label>Description</Label>
                   <Input data-testid="cost-description-input" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
-                <Button data-testid="cost-submit" type="submit" className="w-full">Save</Button>
+                <Button data-testid="cost-submit" type="submit" className="w-full">{editing ? "Save Changes" : "Save"}</Button>
               </form>
             </DialogContent>
           </Dialog>)}
@@ -499,7 +524,7 @@ function LoansTab({ projectId, loans, reload, readOnly }) {
                 <div className="space-y-1.5"><Label>Drawdown date</Label>
                   <DatePicker testid="loan-first-date-input" value={form.first_date} onChange={(v) => setForm({ ...form, first_date: v })} /></div>
               </div>)}
-              <Button data-testid="loan-submit" type="submit" className="w-full">Save Loan</Button>
+              <Button data-testid="loan-submit" type="submit" className="w-full">{editing ? "Save Changes" : "Save Loan"}</Button>
             </form>
           </DialogContent>
         </Dialog>)}

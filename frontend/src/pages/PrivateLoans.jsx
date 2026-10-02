@@ -112,7 +112,7 @@ export default function PrivateLoans() {
               <div className="space-y-1.5"><Label>Notes</Label>
                 <Input data-testid="pl-notes-input" value={form.notes}
                   onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
-              <Button data-testid="pl-submit" type="submit" className="w-full">Save Loan</Button>
+              <Button data-testid="pl-submit" type="submit" className="w-full">{editing ? "Save Changes" : "Save Loan"}</Button>
             </form>
           </DialogContent>
         </Dialog>
