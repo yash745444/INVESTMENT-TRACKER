@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronUp, Copy } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronUp, Copy, Pencil } from "lucide-react";
 import { DatePicker } from "../components/DatePicker";
 import { useAuth } from "../context/AuthContext";
 
@@ -203,14 +203,18 @@ function DataTable({ head, rows, testid }) {
 
 function ContributionsTab({ projectId, contributions, reload, partnerNames, readOnly, memberPartner }) {
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ date: today(), partner: "Yash", amount: "", description: "" });
 
   const submit = async (e) => {
     e.preventDefault();
     try {
-      await api.post(`/projects/${projectId}/contributions`, { ...form, partner: memberPartner || form.partner, amount: Number(form.amount) });
-      toast.success("Contribution added");
+      const payload = { ...form, partner: memberPartner || form.partner, amount: Number(form.amount) };
+      if (editing) await api.put(`/contributions/${editing}`, payload);
+      else await api.post(`/projects/${projectId}/contributions`, payload);
+      toast.success(editing ? "Contribution updated" : "Contribution added");
       setOpen(false);
+      setEditing(null);
       setForm({ date: today(), partner: "Yash", amount: "", description: "" });
       reload();
     } catch (err) { toast.error(apiError(err)); }
@@ -221,10 +225,10 @@ function ContributionsTab({ projectId, contributions, reload, partnerNames, read
       <CardHeader className="flex-row items-center justify-between space-y-0">
         <CardTitle className="font-heading text-lg">Capital Contributions</CardTitle>
         {(!readOnly || memberPartner) && (
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setEditing(null); }}>
           <DialogTrigger asChild><Button size="sm" data-testid="add-contribution-button"><Plus className="h-4 w-4 mr-1" /> Add</Button></DialogTrigger>
           <DialogContent data-testid="add-contribution-dialog">
-            <DialogHeader><DialogTitle className="font-heading">Add Contribution</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle className="font-heading">{editing ? "Edit" : "Add"} Contribution</DialogTitle></DialogHeader>
             <form onSubmit={submit} className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5"><Label>Date</Label>
@@ -258,6 +262,9 @@ function ContributionsTab({ projectId, contributions, reload, partnerNames, read
                     <Button variant="ghost" size="icon" data-testid={`duplicate-contribution-${c.id}`} title="Duplicate (change partner)"
                       onClick={() => { setForm({ date: today(), partner: memberPartner || c.partner, amount: c.amount, description: c.description || "" }); setOpen(true); }}>
                       <Copy className="h-3.5 w-3.5" /></Button>
+                    {!readOnly && (<Button variant="ghost" size="icon" data-testid={`edit-contribution-${c.id}`} title="Edit"
+                      onClick={() => { setEditing(c.id); setForm({ date: c.date, partner: c.partner, amount: c.amount, description: c.description || "" }); setOpen(true); }}>
+                      <Pencil className="h-3.5 w-3.5" /></Button>)}
                     {!readOnly && (<Button variant="ghost" size="icon" data-testid={`delete-contribution-${c.id}`}
                       onClick={async () => { await api.delete(`/contributions/${c.id}`); toast.success("Deleted"); reload(); }}>
                       <Trash2 className="h-3.5 w-3.5 text-negative" /></Button>)}

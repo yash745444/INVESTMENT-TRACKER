@@ -523,6 +523,15 @@ async def add_contribution(pid: str, data: ContributionIn, user=Depends(get_curr
     return doc_out(await db.contributions.find_one({"_id": res.inserted_id}))
 
 
+@app.put("/api/contributions/{cid}")
+async def update_contribution(cid: str, data: ContributionIn, user=Depends(get_current_user)):
+    c = await db.contributions.find_one({"_id": ObjectId(cid)})
+    if not c or c.get("user_id") != user["id"]:
+        raise HTTPException(403, "Not allowed")
+    await db.contributions.update_one({"_id": ObjectId(cid)}, {"$set": data.model_dump()})
+    return doc_out(await db.contributions.find_one({"_id": ObjectId(cid)}))
+
+
 @app.delete("/api/contributions/{cid}")
 async def delete_contribution(cid: str, user=Depends(get_current_user)):
     c = await db.contributions.find_one({"_id": ObjectId(cid)})
