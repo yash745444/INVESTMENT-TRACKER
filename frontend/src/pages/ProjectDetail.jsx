@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronUp, Copy, Pencil, Layers, Lock, RotateCcw } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronUp, Copy, Pencil, Layers, Lock, RotateCcw, CheckCircle2 } from "lucide-react";
 import { DatePicker } from "../components/DatePicker";
 import { useAuth } from "../context/AuthContext";
 
@@ -323,6 +323,22 @@ function ContributionsTab({ projectId, contributions, reload, partnerNames, part
 function BatchesSection({ projectId, batches, partners, reload, readOnly }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ name: "", target: "", note: "" });
+  const [pay, setPay] = useState(null);
+  const [payForm, setPayForm] = useState({ date: today(), amount: "", description: "" });
+
+  const submitPay = async (e) => {
+    e.preventDefault();
+    if (!pay) return;
+    try {
+      await api.post(`/projects/${projectId}/contributions`, {
+        date: payForm.date, partner: pay.partner, amount: Number(payForm.amount),
+        description: payForm.description, batch_id: pay.batch.id,
+      });
+      toast.success(`Payment recorded for ${pay.partner}`);
+      setPay(null);
+      reload();
+    } catch (err) { toast.error(apiError(err)); }
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -349,6 +365,7 @@ function BatchesSection({ projectId, batches, partners, reload, readOnly }) {
     : <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-secondary text-negative">UNPAID</span>;
 
   return (
+    <>
     <Card data-testid="batches-card">
       <CardHeader className="flex-row items-center justify-between space-y-0">
         <div>
@@ -412,6 +429,18 @@ function BatchesSection({ projectId, batches, partners, reload, readOnly }) {
                 </div>
                 {!readOnly && (
                 <div className="flex gap-1.5">
+                  {b.status === "open" && pr.remaining_total > 0.005 && (
+                    <Button size="sm" variant="ghost" data-testid={`batch-settle-all-${b.id}`} title="Record full payment for everyone unpaid"
+                      onClick={async () => {
+                        if (!window.confirm(`Record full payment of ${fmt(pr.remaining_total)} across all unpaid partners?`)) return;
+                        try {
+                          const r = await api.post(`/batches/${b.id}/settle-all`, {});
+                          toast.success(`Recorded ${r.data.inserted} payments (${fmt(r.data.total)})`);
+                          reload();
+                        } catch (err) { toast.error(apiError(err)); }
+                      }}>
+                      <CheckCircle2 className="h-4 w-4 text-positive" /></Button>
+                  )}
                   {b.status === "open" ? (
                     <Button size="sm" variant="ghost" data-testid={`batch-close-${b.id}`} title="Close batch" onClick={() => closeBatch(b)}>
                       <Lock className="h-4 w-4" /></Button>
@@ -438,7 +467,15 @@ function BatchesSection({ projectId, batches, partners, reload, readOnly }) {
                     data-testid={`batch-partner-${b.id}-${pp.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>
                     <span className="font-medium">{pp.name}</span>
                     <span className="font-mono text-muted-foreground">{fmt2(pp.paid)} / {fmt2(pp.expected)}</span>
-                    {statusChip(pp)}
+                    <span className="flex items-center gap-1">
+                      {statusChip(pp)}
+                      {!readOnly && pp.remaining > 0.005 && (
+                        <Button variant="ghost" size="icon" className="h-6 w-6" title="Record payment"
+                          data-testid={`batch-pay-${b.id}-${pp.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                          onClick={() => { setPay({ batch: b, partner: pp.name }); setPayForm({ date: today(), amount: pp.remaining, description: `${b.name} payment` }); }}>
+                          <Plus className="h-3 w-3" /></Button>
+                      )}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -447,6 +484,26 @@ function BatchesSection({ projectId, batches, partners, reload, readOnly }) {
         })}
       </CardContent>
     </Card>
+    <Dialog open={!!pay} onOpenChange={(v) => { if (!v) setPay(null); }}>
+      <DialogContent data-testid="batch-pay-dialog">
+        <DialogHeader><DialogTitle className="font-heading">Record Payment — {pay?.partner}</DialogTitle></DialogHeader>
+        <form onSubmit={submitPay} className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5"><Label>Date</Label>
+              <DatePicker testid="batch-pay-date-input" value={payForm.date} onChange={(v) => setPayForm({ ...payForm, date: v })} /></div>
+            <div className="space-y-1.5"><Label>Amount (AUD)</Label>
+              <Input data-testid="batch-pay-amount-input" type="number" step="0.01" required value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} /></div>
+          </div>
+          <div className="space-y-1.5"><Label>Description</Label>
+            <Input data-testid="batch-pay-description-input" value={payForm.description} onChange={(e) => setPayForm({ ...payForm, description: e.target.value })} /></div>
+          <p className="text-xs text-muted-foreground" data-testid="batch-pay-remaining">
+            Linked to {pay?.batch.name}. {pay?.partner} has {pay ? fmt2(pay.batch.progress.partners.find((x) => x.name === pay.partner)?.remaining || 0) : ""} left to pay in this batch.
+          </p>
+          <Button data-testid="batch-pay-submit" type="submit" className="w-full">Record Payment</Button>
+        </form>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
 

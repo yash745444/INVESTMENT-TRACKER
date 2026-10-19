@@ -654,6 +654,30 @@ async def reopen_batch(bid: str, user=Depends(get_current_user)):
     return doc_out(await db.contribution_batches.find_one({"_id": ObjectId(bid)}))
 
 
+class SettleAllIn(BaseModel):
+    date: Optional[str] = None
+    description: Optional[str] = ""
+
+
+@app.post("/api/batches/{bid}/settle-all")
+async def settle_batch(bid: str, data: SettleAllIn, user=Depends(get_current_user)):
+    b = await get_batch_checked(bid, user, write=True)
+    p = await db.projects.find_one({"_id": ObjectId(b["project_id"])})
+    pr = await batch_progress(bid, b.get("target_amount", 0), p)
+    if pr["remaining_total"] <= 0.005:
+        raise HTTPException(400, "Batch is already fully paid")
+    date = data.date or now_utc().date().isoformat()
+    docs = []
+    for pp in pr["partners"]:
+        if pp["remaining"] > 0.005:
+            docs.append({"date": date, "partner": pp["name"], "amount": pp["remaining"],
+                         "description": data.description or f"{b['name']} — share payment",
+                         "project_id": b["project_id"], "user_id": b["user_id"], "batch_id": bid})
+    if docs:
+        await db.contributions.insert_many(docs)
+    return {"inserted": len(docs), "total": round(sum(d["amount"] for d in docs), 2)}
+
+
 @app.delete("/api/batches/{bid}")
 async def delete_batch(bid: str, user=Depends(get_current_user)):
     await get_batch_checked(bid, user, write=True)
