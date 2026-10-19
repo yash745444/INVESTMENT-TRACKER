@@ -112,6 +112,12 @@ eToro has NO public API for portfolio sync. Shares holdings are entered once (sy
 - Owner-only batch management; linked partners read-only (can still add own contribution to a batch); project deletion cascades to batches
 - Testing: iteration_10 — 13/13 backend (/app/backend/tests/test_iteration10.py), 100% UI flows; MAISON 7 untouched
 
+## Implemented (2026-10-19, iteration 11 — batch payment actions + MAISON 7 seeding)
+- Per-partner "Record payment" (+) button on each UNPAID/PARTIAL batch chip: dialog prefilled with partner's remaining amount, posts a batch-linked contribution; chip flips PARTIAL→PAID as payments land
+- "Record all paid" (settle-all) button on open batches with unpaid remainder: POST /api/batches/{bid}/settle-all creates one contribution per unpaid partner for their exact remaining; 400 if already fully paid
+- Seeded real data on MAISON 7: Batch 1 ($670k — 9 existing contributions linked, CLOSED), Batch 2 ($50k — settle-all recorded all 9 shares dated 2026-10-19, CLOSED), Batch 3 ($1.5M, OPEN, ongoing); contributions now 18 rows / $720,000
+- Testing: iteration_11 — 14/14 backend (/app/backend/tests/test_iteration11.py), 100% UI flows; MAISON 7 state verified after tests
+
 ## Backlog
 - P2: split server.py (1558 lines) into routers (auth/projects/report/ledger)
 - P1: Edit project (name/partners %) from UI; settle-up shortcut button per pair

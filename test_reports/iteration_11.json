@@ -1,0 +1,32 @@
+{
+  "summary": "Iteration 11 — Per-partner Record Payment ('+' button) + batch Settle-All endpoint. 14/14 pytest tests PASS. UI verified end-to-end on MAISON 7 (read-only) and on a scratch TEST project (deleted after test). MAISON 7 Contributions tab renders exactly 3 batch cards (Batch 2 CLOSED $50k paid 100%, Batch 1 CLOSED $670k paid 100%, Batch 3 OPEN $0/$1.5M), exactly 1 settle-all button (Batch 3), 9 batch-pay-* buttons on Batch 3's UNPAID chips, 0 pay/settle buttons on the two closed batches. All PAID chips show correct per-partner amounts (Yash/Sanjay/Pranay/Max/Bhautik $67,000, Nemik $33,500, Manish $167,500, Smit $83,750, Amil $50,250 for Batch 1). Contributions table lists all 18 rows totaling $720,000. Scratch-project UI flow: clicking batch-pay-<bid>-alice opens batch-pay-dialog with amount prefilled to $60,000 (= 60% of $100k target) and remaining hint 'Alice has $60,000.00 left to pay in this batch.'; submitting $30k flips Alice chip to PARTIAL ($30k/$60k) while Bob stays UNPAID. Clicking batch-settle-all triggers a native confirm 'Record full payment of $100,000 across all unpaid partners?'. Backend: settle-all creates 1 contribution per unpaid partner for exact remaining, 400 on fully-paid batch, 401/403 without auth, partial-pay-then-settle only pays remaining ($70k), edit→unlink batch reduces paid, re-link restores, split-contribution with batch works, no-batch contribution still works, delete-batch still 400s when linked. MAISON 7 untouched throughout.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "batch-settle-all confirmation", "issues": ["Uses browser-native window.confirm() instead of a shadcn AlertDialog — inconsistent with the rest of the app (batch-pay-dialog is a styled Radix Dialog). Low priority but worth replacing with AlertDialog for consistent styling + testability."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration11.py",
+    "/app/test_reports/pytest/iteration11.xml"
+  ],
+  "action_items": [
+    "(Optional, low priority) Replace the window.confirm() in BatchesSection settle-all handler with a shadcn AlertDialog for consistent UX + easier Playwright testing."
+  ],
+  "critical_code_review_comments": [
+    "server.py settle-all endpoint uses insert_many and returns {inserted, total} — no transaction, but acceptable since each row is independent. remaining > 0.005 tolerance is correct for float math.",
+    "settle-all request body SettleAllIn allows date/description override but frontend doesn't expose them — fine for MVP.",
+    "ProjectDetail.jsx submitPay posts to /api/projects/{pid}/contributions with batch_id set, correctly reuses add-contribution path (so split/no-split logic consistent).",
+    "Native confirm() dialog in settle-all is a styling inconsistency (every other destructive/confirming action in the app uses Radix/shadcn dialogs).",
+    "ObjectId(bid) in close/reopen/delete_batch/settle_batch would raise bson.errors.InvalidId → 500 for malformed strings. get_batch_checked guards it (returns 404) and is called first in each, so safe in practice."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration11.py"],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100% core flows"},
+  "test_credentials": "yash.sojitra34@gmail.com / Yash@2026 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "MAISON 7 seed state verified (3 batches, 18 contributions, $720k). Scratch projects TEST_UI_ITER11_* and TEST_ITER11_* created and deleted during tests. One stray scratch project was cleaned up manually at end — MAISON 7 untouched (verified: 18 rows / $720,000, Batch 3 still OPEN $0/$1.5M).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Settle-all endpoint: POST /api/batches/{bid}/settle-all with body {date?, description?} returns {inserted, total}. UI uses window.confirm() for settle-all confirmation (not a Radix dialog) — when writing Playwright scripts, register page.on('dialog', lambda d: d.accept()) BEFORE clicking batch-settle-all-<bid> or the click times out. UI testids: batch-pay-<bid>-<partner-slug>, batch-pay-dialog, batch-pay-amount-input, batch-pay-date-input, batch-pay-description-input, batch-pay-remaining, batch-pay-submit, batch-settle-all-<bid>. Partner name slugs via name.toLowerCase().replace(/[^a-z0-9]+/g,'-'). Dialog native-confirm message: 'Record full payment of $<N> across all unpaid partners?'. Prefill amount = partner's remaining in batch."
+}
