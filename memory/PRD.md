@@ -106,6 +106,12 @@ eToro has NO public API for portfolio sync. Shares holdings are entered once (sy
 - Project value (as at): ProjectIn.current_value — editable in New/Edit Project dialog, shown as "Project Value" on project cards and 6th stat card on Project Detail
 - Testing: iteration_9 — 5/5 backend (/app/backend/tests/test_iteration9.py), 100% UI flows; MAISON 7 real data untouched
 
+## Implemented (2026-10-02, iteration 10 — contribution batches / capital calls)
+- Batches: owner starts a batch (name + target amount, auto per-partner expected = target × ownership %) — collection contribution_batches; GET/POST /api/projects/{pid}/batches, POST /api/batches/{bid}/close + /reopen, DELETE guarded while contributions linked (400)
+- Tracking: contributions (add/edit/duplicate/company-split) link to a batch via batch_id (validated against project); batch card shows per-partner paid/expected/remaining with PAID/PARTIAL/UNPAID chips, gold progress bar, "X of Y paid — Z left"; close prompts if unpaid remains; closed batches hidden from batch select unless already linked
+- Owner-only batch management; linked partners read-only (can still add own contribution to a batch); project deletion cascades to batches
+- Testing: iteration_10 — 13/13 backend (/app/backend/tests/test_iteration10.py), 100% UI flows; MAISON 7 untouched
+
 ## Backlog
 - P2: split server.py (1558 lines) into routers (auth/projects/report/ledger)
 - P1: Edit project (name/partners %) from UI; settle-up shortcut button per pair

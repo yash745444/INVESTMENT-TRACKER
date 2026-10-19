@@ -1,0 +1,29 @@
+{
+  "summary": "Iteration 10 (Contribution Batches / capital calls) — backend + UI fully validated. 13/13 pytest tests pass covering batch create (owner-only, target>0 validation), progress math (expected = target*pct/100, remaining, fully_paid flag), partial→full flip, invalid batch_id guard on single & split contributions, close/reopen lifecycle, delete-guard with linked contributions, project-delete cascade, edit-contribution assign/unassign batch. End-to-end Playwright flow on a scratch TEST project also confirms: batches-card visible, New Batch dialog prefills 'Batch 1', target input triggers batch-split-preview with correct per-partner share, submit creates batch-card with OPEN badge & progress bar & UNPAID chips for both partners, linking a $30k contribution flips Alice chip to PARTIAL ($30k/$60k), close → CLOSED badge, delete attempt with 1 linked contribution produces 400 + 'Batch has 1 linked contribution(s) — remove them first' toast and the card survives. MAISON 7 (6abded14ba052cd1f3f8dd4c) was NOT touched; all test data created on throwaway TEST projects and deleted.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "New Batch dialog, Add Contribution dialog", "issues": ["Console warning: Radix DialogContent missing `Description` or aria-describedby (accessibility). Harmless but should be addressed by adding a DialogDescription or aria-describedby for a11y."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration10.py",
+    "/app/test_reports/pytest/iteration10.xml"
+  ],
+  "action_items": [
+    "(Optional, low priority) Add DialogDescription / aria-describedby to new-batch-dialog and add-contribution dialog to silence Radix a11y warning."
+  ],
+  "critical_code_review_comments": [
+    "server.py batch_progress keys are paid_total / expected_total / remaining_total — review request mentioned 'fully_paid flag' per-partner but partners currently only expose expected/paid/remaining (fully_paid is only on the overall progress object). UI already derives UNPAID/PARTIAL/PAID from paid vs expected, so it works, but if the API contract explicitly promises per-partner fully_paid, adding it would make it self-documenting.",
+    "server.py `get_batch_checked` and other endpoints call `ObjectId(bid)` without a try/except — a malformed string would raise bson.errors.InvalidId → 500. Not exercised by the UI, but worth guarding (return 404)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration10.py"],
+  "success_rate": {"backend": "100% (13/13)", "frontend": "100% core flow"},
+  "test_credentials": "yash.sojitra34@gmail.com / Yash@2026 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "All test data created on TEST_ITER10_* and TEST_UI_BATCH_* projects which are deleted at end of each test / fixture. MAISON 7 untouched.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Batch endpoints use `partner` (not partner_name) on ContributionIn and progress keys are paid_total/expected_total/remaining_total. Invalid batch IDs that are valid-ObjectId-format-but-nonexistent return 400 'Invalid batch'. Malformed ObjectId strings would currently 500 — not tested here. UI data-testids all confirmed working: batches-card, new-batch-button, new-batch-dialog, batch-name-input, batch-target-input, batch-split-preview, batch-submit, batch-card-<id>, batch-status-<id>, batch-partner-<id>-<name>, batch-close-<id>, batch-delete-<id>, contribution-batch-select, add-contribution-button, contribution-amount-input, contribution-partner-select, contribution-submit."
+}

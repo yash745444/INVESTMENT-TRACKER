@@ -576,7 +576,10 @@ class BatchIn(BaseModel):
 
 
 async def get_batch_checked(bid: str, user: dict, write: bool = False):
-    b = await db.contribution_batches.find_one({"_id": ObjectId(bid)})
+    try:
+        b = await db.contribution_batches.find_one({"_id": ObjectId(bid)})
+    except Exception:
+        b = None
     if not b:
         raise HTTPException(404, "Batch not found")
     p = await get_project_access(b["project_id"], user)
