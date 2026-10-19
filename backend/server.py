@@ -1480,6 +1480,13 @@ async def etoro_instrument_meta(ids: list) -> dict:
 @app.post("/api/integrations/etoro/sync")
 async def etoro_sync(user=Depends(get_current_user)):
     portfolio = await etoro_get("/trading/info/portfolio")
+    pnl_data = await etoro_get("/trading/info/real/pnl")
+    pnl_by_id = {}
+    for pp in ((pnl_data.get("clientPortfolio") or pnl_data).get("positions", []) or []):
+        ppid = pp.get("positionID") or pp.get("positionId")
+        upl = pp.get("unrealizedPnL") or {}
+        if ppid is not None and upl.get("pnL") is not None:
+            pnl_by_id[str(ppid)] = upl["pnL"]
     raw = (portfolio.get("clientPortfolio") or portfolio).get("positions", []) or []
     ids = sorted({int(p.get("instrumentID") or p.get("instrumentId")) for p in raw
                   if (p.get("instrumentID") or p.get("instrumentId")) is not None})
@@ -1507,6 +1514,13 @@ async def etoro_sync(user=Depends(get_current_user)):
         rate = rates_by_id.get(iid, {})
         price = rate.get("lastExecution") or rate.get("ask") or rate.get("bid") or 0
         qty = p.get("units") or p.get("initialUnits") or 0
+        is_buy = p.get("isBuy", True)
+        invested = p.get("initialAmountInDollars") or p.get("amount") or 0
+        # eToro positions are margined CFDs: worth = invested + unrealized P&L
+        # (NOT units x price — that's leveraged notional exposure)
+        pnl = pnl_by_id.get(pid)
+        if pnl is None:
+            pnl = qty * ((price - (p.get("openRate") or 0)) * (1 if is_buy else -1))
         inv_type = {"stock": "shares", "crypto": "crypto"}.get(asset, "other")
         if asset == "unknown":
             warnings.append(f"Instrument {iid} type unmapped — stored under Other")
@@ -1518,7 +1532,7 @@ async def etoro_sync(user=Depends(get_current_user)):
             "currency": "USD", "price_currency": "USD",
             "quantity": qty, "current_price": price,
             "buy_price": p.get("openRate") or 0,
-            "amount": p.get("initialAmountInDollars") or p.get("amount") or qty * price or 0,
+            "amount": invested, "pnl": round(pnl, 2), "is_buy": is_buy,
             "leverage": p.get("leverage") or 1, "date": str(p.get("openDateTime", ""))[:10],
             "notes": f"eToro position {pid}", "synced_at": now,
         }
@@ -1529,7 +1543,10 @@ async def etoro_sync(user=Depends(get_current_user)):
     await db.investments.delete_many({"user_id": user["id"], "source": "etoro",
                                       "external_position_id": {"$nin": seen}})
     await db.users.update_one({"_id": ObjectId(user["id"])}, {"$set": {"etoro_last_sync": now}})
-    return {"synced": len(seen), "warnings": warnings, "synced_at": now}
+    total_value = round((await db.investments.aggregate([
+        {"$match": {"user_id": user["id"], "source": "etoro"}},
+        {"$group": {"_id": None, "v": {"$sum": {"$add": ["$amount", {"$ifNull": ["$pnl", 0]}]}}}}]).to_list(1) or [{}])[0].get("v", 0), 2)
+    return {"synced": len(seen), "warnings": warnings, "synced_at": now, "total_value_usd": total_value}
 
 
 # ---------------- shares privacy ----------------
@@ -1563,6 +1580,14 @@ def shares_visible(request: Request) -> bool:
 # ---------------- dashboard ----------------
 
 def investment_native(inv):
+    if inv.get("source") == "etoro":
+        # margined CFD positions: invested + unrealized P&L (not units x price)
+        pnl = inv.get("pnl")
+        if pnl is None:
+            sign = 1 if inv.get("is_buy", True) else -1
+            pnl = (inv.get("quantity") or 0) * ((inv.get("current_price") or 0) - (inv.get("buy_price") or 0)) * sign
+        return round((inv.get("amount") or 0) + pnl, 2), \
+            (inv.get("price_currency") or inv.get("currency", "AUD"))
     if inv.get("type") in ("shares", "crypto") and inv.get("symbol"):
         return round((inv.get("quantity") or 0) * (inv.get("current_price") or 0), 2), \
             (inv.get("price_currency") or inv.get("currency", "AUD"))
@@ -1570,6 +1595,9 @@ def investment_native(inv):
 
 
 def investment_worth_aud(inv, rates):
+    if inv.get("source") == "etoro":
+        nv, cur = investment_native(inv)
+        return to_aud(nv, cur, rates)
     if inv.get("type") in ("shares", "crypto") and inv.get("symbol") and inv.get("quantity") and inv.get("current_price"):
         return to_aud(inv["quantity"] * inv["current_price"],
                       inv.get("price_currency") or inv.get("currency", "AUD"), rates)

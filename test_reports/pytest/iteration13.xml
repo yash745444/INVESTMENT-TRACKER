@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="4" skipped="0" tests="14" time="8.059" timestamp="2026-10-19T05:51:17.608843+00:00" hostname="agent-env-42c879b8-ebe5-42e4-882b-1c4e236579b3"><testcase classname="tests.test_iteration13.TestEtoroGetErrorMapping" name="test_401_maps_to_502" time="0.687"><failure message="KeyError: 'MONGO_URL'">backend/tests/test_iteration13.py:165: in test_401_maps_to_502
+    import server
+backend/server.py:34: in &lt;module&gt;
+    client = AsyncIOMotorClient(os.environ["MONGO_URL"])
+                                ^^^^^^^^^^^^^^^^^^^^^^^
+&lt;frozen os&gt;:679: in __getitem__
+    ???
+E   KeyError: 'MONGO_URL'</failure></testcase><testcase classname="tests.test_iteration13.TestPinGateCoversCrypto" name="test_locked_investments_redacted" time="0.727" /><testcase classname="tests.test_iteration13.TestPinGateCoversCrypto" name="test_locked_dashboard_excludes_shares_crypto" time="0.070" /><testcase classname="tests.test_iteration13.TestEtoroGetErrorMapping" name="test_403_maps_to_502" time="0.001"><failure message="KeyError: 'MONGO_URL'">backend/tests/test_iteration13.py:197: in test_403_maps_to_502
+    import server
+backend/server.py:34: in &lt;module&gt;
+    client = AsyncIOMotorClient(os.environ["MONGO_URL"])
+                                ^^^^^^^^^^^^^^^^^^^^^^^
+&lt;frozen os&gt;:679: in __getitem__
+    ???
+E   KeyError: 'MONGO_URL'</failure></testcase><testcase classname="tests.test_iteration13.TestPinGateCoversCrypto" name="test_locked_report_networth_redacted" time="0.067" /><testcase classname="tests.test_iteration13.TestEtoroGetErrorMapping" name="test_429_retries_then_succeeds" time="0.001"><failure message="KeyError: 'MONGO_URL'">backend/tests/test_iteration13.py:228: in test_429_retries_then_succeeds
+    import server
+backend/server.py:34: in &lt;module&gt;
+    client = AsyncIOMotorClient(os.environ["MONGO_URL"])
+                                ^^^^^^^^^^^^^^^^^^^^^^^
+&lt;frozen os&gt;:679: in __getitem__
+    ???
+E   KeyError: 'MONGO_URL'</failure></testcase><testcase classname="tests.test_iteration13.TestEtoroGetErrorMapping" name="test_unknown_instrument_type_warns" time="0.001"><failure message="KeyError: 'MONGO_URL'">backend/tests/test_iteration13.py:266: in test_unknown_instrument_type_warns
+    import server
+backend/server.py:34: in &lt;module&gt;
+    client = AsyncIOMotorClient(os.environ["MONGO_URL"])
+                                ^^^^^^^^^^^^^^^^^^^^^^^
+&lt;frozen os&gt;:679: in __getitem__
+    ???
+E   KeyError: 'MONGO_URL'</failure></testcase><testcase classname="tests.test_iteration13.TestPinGateCoversCrypto" name="test_unlocked_shows_crypto" time="0.630" /><testcase classname="tests.test_iteration13.TestEtoroSync" name="test_sync_returns_schema" time="0.818" /><testcase classname="tests.test_iteration13.TestSyncedRowShape" name="test_etoro_rows_have_expected_fields" time="0.668" /><testcase classname="tests.test_iteration13.TestSyncedRowShape" name="test_crypto_present" time="0.094" /><testcase classname="tests.test_iteration13.TestManualUntouched" name="test_manual_rows_preserved_after_sync" time="2.600" /><testcase classname="tests.test_iteration13.TestEtoroSync" name="test_sync_idempotent" time="5.267" /><testcase classname="tests.test_iteration13.TestDashboardCrypto" name="test_dashboard_investments_includes_crypto" time="0.067" /></testsuite></testsuites>

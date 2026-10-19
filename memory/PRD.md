@@ -125,6 +125,14 @@ eToro has NO public API for portfolio sync. Shares holdings are entered once (sy
 - Dashboard "My Equity" + net worth report now use my% × (project_cost − drawn); project cards show "Project Cost" instead of raw tracked costs
 - Seeded MAISON 7: land $6,610,000 + duty $388,897 → project cost $7,048,897, equity $2,088,897 (gap to user's $7.18M/$2.22M = tracked costs still to be entered)
 
+## Implemented (2026-10-19, iteration 13 — eToro live sync)
+- eToro Public API integration (keys in backend/.env: ETORO_API_KEY + ETORO_USER_KEY; headers x-api-key/x-user-key/x-request-id; 429 retry with Retry-After + backoff; 401/403 surfaced clearly)
+- POST /api/integrations/etoro/sync: pulls /trading/info/portfolio → positions; batches /market-data/instruments/rates (≤100 ids) for live prices; /market-data/instruments (instrumentDisplayDatas) maps instrumentID → symbolFull/name/type (typeID 5=stock→shares, 10=crypto; unknown→Other + warning); per-position leverage carried; upsert keyed (user_id, source=etoro, external_position_id); closed positions pruned; manual entries NEVER touched; instrument meta cached in db.etoro_instruments
+- Investments page: "Sync eToro" button (spinner, toast + warnings), eToro gold badge on synced rows, new Crypto group; crypto treated like shares (worth = qty × price, USD→AUD FX, P&L vs buy price)
+- PIN gate extended: crypto redacted alongside shares server-side (list, dashboard, net worth report); Refresh Prices skips eToro rows (eToro is authoritative)
+- Verified live: 9 positions synced (BTC 0.0148 @ $82.6k, AMZN/NVDA×4/HXL/SATL/SATS.OL) ≈ $31k USD
+- Testing: curl-verified end-to-end incl. PIN redaction of synced rows
+
 ## Backlog
 - P2: split server.py (1558 lines) into routers (auth/projects/report/ledger)
 - P1: Edit project (name/partners %) from UI; settle-up shortcut button per pair

@@ -45,9 +45,11 @@ export default function Investments() {
 
   const toAud = (amount, cur) => rates ? amount / (rates[cur] || 1) : 0;
   const isMarket = (i) => (i.type === "shares" || i.type === "crypto") && i.symbol;
-  const worthOf = (i) => (isMarket(i) && i.quantity && i.current_price)
-    ? i.quantity * i.current_price : i.amount;
-  const worthCur = (i) => isMarket(i) ? (i.price_currency || i.currency) : i.currency;
+  // eToro rows are margined CFDs: worth = invested + P&L, not qty x price (leveraged notional)
+  const worthOf = (i) => i.source === "etoro"
+    ? (Number(i.amount) || 0) + (i.pnl ?? (Number(i.quantity) || 0) * ((Number(i.current_price) || 0) - (Number(i.buy_price) || 0)) * (i.is_buy === false ? -1 : 1))
+    : (isMarket(i) && i.quantity && i.current_price ? i.quantity * i.current_price : i.amount);
+  const worthCur = (i) => (isMarket(i) || i.source === "etoro") ? (i.price_currency || i.currency) : i.currency;
 
   const submit = async (e) => {
     e.preventDefault();
@@ -125,7 +127,7 @@ export default function Investments() {
     setSyncing(true);
     try {
       const r = await api.post("/integrations/etoro/sync");
-      toast.success(`Synced ${r.data.synced} eToro position${r.data.synced === 1 ? "" : "s"}`);
+      toast.success(`Synced ${r.data.synced} eToro position${r.data.synced === 1 ? "" : "s"} — total value $${(r.data.total_value_usd ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })} USD`);
       (r.data.warnings || []).forEach((w) => toast.warning(w));
       load();
     } catch (err) { toast.error(apiError(err)); }
@@ -312,7 +314,9 @@ export default function Investments() {
                             </p>
                             <p className="font-mono text-xs text-muted-foreground mt-0.5">
                               {(i.type === "shares" || i.type === "crypto") && i.symbol
-                                ? `${i.symbol} · ${Number(i.quantity).toFixed(4).replace(/\.?0+$/, "")} × ${fmt2(i.current_price, i.price_currency || i.currency)} = ${fmt2(worthOf(i), worthCur(i))}${worthCur(i) !== "AUD" ? ` ≈ ${fmt(toAud(worthOf(i), worthCur(i)))}` : ""}${i.buy_price ? ` · P&L ${(((i.current_price - i.buy_price) / i.buy_price) * 100).toFixed(1)}%` : ""}`
+                                ? (i.source === "etoro"
+                                  ? `${i.symbol} · invested ${fmt2(i.amount, worthCur(i))} · P&L ${(i.pnl ?? 0) >= 0 ? "+" : ""}${fmt2(i.pnl ?? 0, worthCur(i))} (${i.amount ? (((i.pnl ?? 0) / i.amount) * 100).toFixed(1) : "0.0"}%) = ${fmt2(worthOf(i), worthCur(i))}${worthCur(i) !== "AUD" ? ` ≈ ${fmt(toAud(worthOf(i), worthCur(i)))}` : ""}`
+                                  : `${i.symbol} · ${Number(i.quantity).toFixed(4).replace(/\.?0+$/, "")} × ${fmt2(i.current_price, i.price_currency || i.currency)} = ${fmt2(worthOf(i), worthCur(i))}${worthCur(i) !== "AUD" ? ` ≈ ${fmt(toAud(worthOf(i), worthCur(i)))}` : ""}${i.buy_price ? ` · P&L ${(((i.current_price - i.buy_price) / i.buy_price) * 100).toFixed(1)}%` : ""}`)
                                 : `${fmt2(i.amount, i.currency)}${i.currency !== "AUD" ? ` ≈ ${fmt(toAud(i.amount, i.currency))}` : ""}`}
                             </p>
                           </div>

@@ -1,0 +1,21 @@
+{
+  "summary": "Iteration 13 (eToro API integration for shares + crypto) tested end-to-end. 14/14 backend tests PASS in /app/backend/tests/test_iteration13.py — sync endpoint schema, idempotency (two consecutive syncs return same count and /api/investments has exactly that many source='etoro' rows), synced row shape (source/external_position_id/buy_price/leverage/currency='USD'), BTC crypto present, PIN gate server-side redaction covers BOTH shares AND crypto in /api/investments, /api/dashboard (shares_total=0 locked), and /api/report/networth (hidden holdings), unlocked crypto visible, manual rows preserved pre/post sync (same count & IDs), dashboard by_type.crypto>0 when unlocked, and mocked httpx unit tests prove 401/403→HTTPException 502 with 'rejected' message, 429 retries honoring Retry-After then succeeds, unknown instrumentTypeID→asset_type='unknown' (surfaces as 'other' + warning in sync). Frontend Playwright: /investments shows etoro-sync-button; clicking syncs; while LOCKED the page shows 'Shares — 8 holdings hidden' + 'Crypto — 1 holding hidden' (PIN gate masks crypto too — iteration-13 requirement). After unlock via Reveal Shares + PIN 2468, 9 eToro badges render (data-testid etoro-badge-*): AMZN×2, 3×NVDA (×2, no-lev, ×5, ×2 total 3 positions), SATS.OL, SATL, HXL×5, and BTC (Crypto group). Each row shows symbol·qty×price=worth and P&L% (BTC +16.3% vs buy ~71037). Shares total $42,836 AUD, Crypto $1,750 AUD, Term Insurance $37,101 AUD (manual FUND 1/2/3 intact). Dashboard shows INVESTMENTS $81,688 AUD including crypto. refresh-prices-button present. No console errors on /investments or /dashboard.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_iteration13.py", "/app/test_reports/pytest/iteration13.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py now 1933 lines — splitting by domain (investments/etoro/projects/report) still recommended for maintainability",
+    "etoro_sync endpoint has no rate-limit guard against rapid user clicks (relies on upstream 429 handling + 60/min quota); consider a per-user 'syncing' lock to prevent concurrent in-flight requests from double-mutating investments collection",
+    "etoro_get retries up to 4 times on 429 with 2^n+random backoff capped at 30s — fine, but the final raise message mentions 'rate limit exceeded' even if the loop exits for other reasons (minor cosmetic)",
+    "investment_worth_aud and PIN redaction correctly include 'crypto' alongside 'shares' at every entry point (list/dashboard/report)"
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration13.py"],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100%"},
+  "test_credentials": "yash.sojitra34@gmail.com / Yash@2026 ; Shares PIN 2468 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None — tests exercise live eToro sync against real admin data. Manual rows (Term Insurance FUND 1/2/3) verified unchanged across multiple sync cycles. eToro keys NOT logged/exposed.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 13 verified. Live state: 9 eToro synced rows (8 shares + 1 BTC crypto) ≈ $44,586 AUD when unlocked; dashboard INVESTMENTS $81,688 AUD including Term Insurance $37,101. Sync endpoint prunes stale eToro positions (external_position_id not in current response) and upserts live ones — do NOT delete these rows manually. eToro free rate limit ~60 req/min; space out sync clicks (test_iteration13 inserts 2s between consecutive syncs). PIN-gate ('shares_unlock' cookie, 1h expiry) now covers type∈('shares','crypto') at /api/investments, /api/dashboard, /api/report/networth.",
+  "rca of the issue": "N/A — all iteration 13 requirements verified passing."
+}
