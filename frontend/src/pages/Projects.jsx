@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, apiError } from "../lib/api";
 import { fmt } from "../lib/format";
+import { calcStampDutyNSW } from "../lib/stampDuty";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
@@ -19,7 +20,7 @@ export default function Projects() {
   const [projects, setProjects] = useState(null);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({ name: "", address: "", description: "", current_value: "" });
+  const [form, setForm] = useState({ name: "", address: "", description: "", current_value: "", land_cost: "", stamp_duty: "" });
   const [partnerRows, setPartnerRows] = useState(DEFAULT_PARTNERS);
   const [people, setPeople] = useState([]);
   const navigate = useNavigate();
@@ -34,6 +35,8 @@ export default function Projects() {
         ...form,
         partners: partnerRows.filter((r) => r.name.trim()).map((r) => ({ name: r.name.trim(), percentage: Number(r.percentage) || 0, email: (r.email || "").trim() })),
         current_value: Number(form.current_value) || 0,
+        land_cost: Number(form.land_cost) || 0,
+        stamp_duty: Number(form.stamp_duty) || 0,
       };
       if (editing) {
         payload.status = editing.status || "active";
@@ -45,7 +48,7 @@ export default function Projects() {
       toast.success(editing ? "Project updated" : "Project created");
       setOpen(false);
       setEditing(null);
-      setForm({ name: "", address: "", description: "", current_value: "" });
+      setForm({ name: "", address: "", description: "", current_value: "", land_cost: "", stamp_duty: "" });
       setPartnerRows(DEFAULT_PARTNERS);
       load();
     } catch (err) {
@@ -83,6 +86,18 @@ export default function Projects() {
                 <Label>Current project value (AUD, as at now)</Label>
                 <Input data-testid="project-value-input" type="number" step="0.01" value={form.current_value}
                   onChange={(e) => setForm({ ...form, current_value: e.target.value })} placeholder="e.g. 5200000" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Land cost (AUD)</Label>
+                  <Input data-testid="project-land-input" type="number" step="0.01" value={form.land_cost}
+                    onChange={(e) => setForm({ ...form, land_cost: e.target.value, stamp_duty: calcStampDutyNSW(e.target.value) || "" })} placeholder="e.g. 6610000" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Stamp duty (auto NSW, editable)</Label>
+                  <Input data-testid="project-duty-input" type="number" step="0.01" value={form.stamp_duty}
+                    onChange={(e) => setForm({ ...form, stamp_duty: e.target.value })} />
+                </div>
               </div>
               <div className="space-y-2">
                 <Label>Ownership %</Label>
@@ -151,7 +166,7 @@ export default function Projects() {
                         onClick={(e) => {
                           e.stopPropagation();
                           setEditing(p);
-                          setForm({ name: p.name, address: p.address || "", description: p.description || "", current_value: p.current_value || "" });
+                          setForm({ name: p.name, address: p.address || "", description: p.description || "", current_value: p.current_value || "", land_cost: p.land_cost || "", stamp_duty: p.stamp_duty || "" });
                           setPartnerRows(p.partners?.length ? p.partners.map((pt) => ({ name: pt.name, percentage: pt.percentage, email: pt.email || "" })) : [{ name: "", percentage: 0, email: "" }]);
                           setOpen(true);
                         }}>
@@ -175,8 +190,8 @@ export default function Projects() {
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div><p className="label-overline">Contributed</p>
                     <p className="font-mono font-medium">{fmt(p.totals.contributions)}</p></div>
-                  <div><p className="label-overline">Costs</p>
-                    <p className="font-mono font-medium">{fmt(p.totals.costs)}</p></div>
+                  <div><p className="label-overline">Project Cost</p>
+                    <p className="font-mono font-medium" data-testid={`project-cost-${p.id}`}>{fmt(p.totals.project_cost ?? p.totals.costs)}</p></div>
                   <div><p className="label-overline">Loan Outstanding</p>
                     <p className="font-mono font-medium text-negative">{fmt(p.totals.outstanding)}</p></div>
                   <div><p className="label-overline">Repayment/mo</p>

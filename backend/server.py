@@ -203,6 +203,8 @@ class ProjectIn(BaseModel):
     partners: List[dict] = []  # [{name, percentage, email?}]
     final_profit: float = 0  # owner's share of project profit when finished
     current_value: float = 0  # estimated current project value (as at)
+    land_cost: float = 0  # land purchase price
+    stamp_duty: float = 0  # transfer/stamp duty on land (auto-calc in UI, overridable)
 
 
 class ContributionIn(BaseModel):
@@ -421,8 +423,11 @@ async def list_projects(user=Depends(get_current_user)):
             drawn += m["drawn"]
             outstanding += m["outstanding"]
             monthly += m["monthly_payment"]
+        project_cost = p.get("land_cost", 0) + p.get("stamp_duty", 0) + cost
+        equity = project_cost - drawn if project_cost > 0 else contrib
         p["totals"] = {"contributions": contrib, "costs": cost, "drawn": drawn,
-                       "outstanding": outstanding, "monthly_repayment": monthly}
+                       "outstanding": outstanding, "monthly_repayment": monthly,
+                       "project_cost": project_cost, "equity": equity}
         out.append(p)
     return out
 
@@ -1517,8 +1522,9 @@ async def _dashboard_data(request: Request, user: dict) -> dict:
             m = loan_metrics(l)
             drawn += m["drawn"]
             outstanding += m["outstanding"]
-        net_position = total_contrib + drawn - total_costs
-        my_equity = net_position * my_pct / 100
+        project_cost = p.get("land_cost", 0) + p.get("stamp_duty", 0) + total_costs
+        equity_total = project_cost - drawn if project_cost > 0 else total_contrib
+        my_equity = equity_total * my_pct / 100
         my_loan_share = outstanding * my_pct / 100
         my_contributions += contrib_mine
         loans_outstanding += outstanding
@@ -1526,6 +1532,7 @@ async def _dashboard_data(request: Request, user: dict) -> dict:
         my_loan_share_total += my_loan_share
         projects.append({"id": pid, "name": p["name"], "my_percentage": my_pct,
                          "my_contributions": contrib_mine, "my_equity": round(my_equity, 2),
+                         "project_cost": project_cost,
                          "loan_outstanding": outstanding, "my_loan_share": round(my_loan_share, 2),
                          "final_profit": p.get("final_profit", 0)})
 

@@ -118,6 +118,13 @@ eToro has NO public API for portfolio sync. Shares holdings are entered once (sy
 - Seeded real data on MAISON 7: Batch 1 ($670k — 9 existing contributions linked, CLOSED), Batch 2 ($50k — settle-all recorded all 9 shares dated 2026-10-19, CLOSED), Batch 3 ($1.5M, OPEN, ongoing); contributions now 18 rows / $720,000
 - Testing: iteration_11 — 14/14 backend (/app/backend/tests/test_iteration11.py), 100% UI flows; MAISON 7 state verified after tests
 
+## Implemented (2026-10-19, iteration 12 — true project cost & equity model)
+- BUG FIX: "Cash Position" stat (contributions + drawn − costs) produced nonsense ($5.6M) — replaced with Equity = Total Project Cost − Loans Drawn (falls back to contributions when no cost data); project cost is INDEPENDENT of contributions/loans
+- Project cost structure: land_cost + stamp_duty (new ProjectIn fields) + tracked costs; Costs tab has a Project Cost banner (Land / Stamp Duty / Tracked / Total) with owner-editable "Land & duty" dialog
+- Automatic NSW stamp duty calculator (lib/stampDuty.js, 2025-26 rates incl. premium duty over $3.721M; per-$100-or-part rounding), auto-fills on land entry, editable override — in project dialog and Land & duty dialog
+- Dashboard "My Equity" + net worth report now use my% × (project_cost − drawn); project cards show "Project Cost" instead of raw tracked costs
+- Seeded MAISON 7: land $6,610,000 + duty $388,897 → project cost $7,048,897, equity $2,088,897 (gap to user's $7.18M/$2.22M = tracked costs still to be entered)
+
 ## Backlog
 - P2: split server.py (1558 lines) into routers (auth/projects/report/ledger)
 - P1: Edit project (name/partners %) from UI; settle-up shortcut button per pair

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { api, apiError } from "../lib/api";
 import { fmt, fmt2, fmtDate, today, PARTNERS } from "../lib/format";
+import { calcStampDutyNSW } from "../lib/stampDuty";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
@@ -62,6 +63,8 @@ export default function ProjectDetail() {
   const totalDrawn = loans.reduce((s, l) => s + l.metrics.drawn, 0);
   const totalOutstanding = loans.reduce((s, l) => s + l.metrics.outstanding, 0);
   const totalMonthly = loans.reduce((s, l) => s + l.metrics.monthly_payment, 0);
+  const projectCost = (project.land_cost || 0) + (project.stamp_duty || 0) + totalCosts;
+  const equity = projectCost > 0 ? projectCost - totalDrawn : totalContrib;
 
   return (
     <div className="space-y-6" data-testid="project-detail-page">
@@ -79,8 +82,8 @@ export default function ProjectDetail() {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         {[
           ["Contributions", totalContrib, "pd-stat-contributions"],
-          ["Costs Incurred", totalCosts, "pd-stat-costs"],
-          ["Cash Position", totalContrib + totalDrawn - totalCosts, "pd-stat-cash"],
+          ["Project Cost", projectCost, "pd-stat-cost"],
+          ["Equity", equity, "pd-stat-equity"],
           ["Loan Outstanding", totalOutstanding, "pd-stat-outstanding"],
           ["Repayment / mo", totalMonthly, "pd-stat-monthly"],
           ["Project Value", project.current_value || 0, "pd-stat-value"],
@@ -88,7 +91,7 @@ export default function ProjectDetail() {
           <Card key={tid} data-testid={tid}>
             <CardContent className="p-4">
               <p className="label-overline">{label}</p>
-              <p className={`font-mono font-semibold text-lg mt-1.5 ${label.includes("Loan") || label.includes("Costs") ? "text-negative" : ""}`}>{fmt(val)}</p>
+              <p className={`font-mono font-semibold text-lg mt-1.5 ${label.includes("Loan") || label.includes("Cost") ? "text-negative" : ""}`}>{fmt(val)}</p>
             </CardContent>
           </Card>
         ))}
@@ -181,7 +184,7 @@ export default function ProjectDetail() {
           <ContributionsTab projectId={id} contributions={contributions} reload={load} partnerNames={partnerNames} partners={project.partners || []} batches={batches} readOnly={readOnly} memberPartner={memberPartner} />
         </TabsContent>
         <TabsContent value="costs" className="mt-5">
-          <CostsTab projectId={id} costs={costs} reload={load} partnerNames={partnerNames} readOnly={readOnly} />
+          <CostsTab projectId={id} costs={costs} reload={load} partnerNames={partnerNames} readOnly={readOnly} project={project} />
         </TabsContent>
         <TabsContent value="loans" className="mt-5">
           <LoansTab projectId={id} loans={loans} reload={load} readOnly={readOnly} />
@@ -507,10 +510,28 @@ function BatchesSection({ projectId, batches, partners, reload, readOnly }) {
   );
 }
 
-function CostsTab({ projectId, costs, reload, partnerNames, readOnly }) {
+function CostsTab({ projectId, costs, reload, partnerNames, readOnly, project }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [landOpen, setLandOpen] = useState(false);
+  const [landForm, setLandForm] = useState({ land_cost: "", stamp_duty: "" });
+  const tracked = costs.reduce((s, c) => s + c.amount, 0);
+
+  const saveLand = async (e) => {
+    e.preventDefault();
+    try {
+      await api.put(`/projects/${projectId}`, {
+        name: project.name, address: project.address || "", description: project.description || "",
+        status: project.status || "active", partners: project.partners || [],
+        final_profit: Number(project.final_profit) || 0, current_value: Number(project.current_value) || 0,
+        land_cost: Number(landForm.land_cost) || 0, stamp_duty: Number(landForm.stamp_duty) || 0,
+      });
+      toast.success("Land & stamp duty saved");
+      setLandOpen(false);
+      reload();
+    } catch (err) { toast.error(apiError(err)); }
+  };
   const [rows, setRows] = useState([{ date: today(), category: "Site Acquisition", description: "", amount: "", paid_by: "" }]);
   const [form, setForm] = useState({ date: today(), category: "Site Acquisition", amount: "", description: "", paid_by: "" });
 
@@ -544,6 +565,23 @@ function CostsTab({ projectId, costs, reload, partnerNames, readOnly }) {
 
   return (
     <div className="space-y-5">
+      <Card data-testid="project-cost-card">
+        <CardContent className="p-4 flex items-center justify-between flex-wrap gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-8 gap-y-2 text-sm">
+            <div><p className="label-overline">Land</p><p className="font-mono font-medium" data-testid="cost-land">{fmt(project?.land_cost || 0)}</p></div>
+            <div><p className="label-overline">Stamp Duty</p><p className="font-mono font-medium" data-testid="cost-duty">{fmt(project?.stamp_duty || 0)}</p></div>
+            <div><p className="label-overline">Tracked Costs</p><p className="font-mono font-medium" data-testid="cost-tracked">{fmt(tracked)}</p></div>
+            <div><p className="label-overline">Total Project Cost</p><p className="font-mono font-semibold text-gold" data-testid="cost-total">{fmt((project?.land_cost || 0) + (project?.stamp_duty || 0) + tracked)}</p></div>
+          </div>
+          {!readOnly && (
+            <Button size="sm" variant="outline" data-testid="edit-land-button"
+              onClick={() => { setLandForm({ land_cost: project?.land_cost || "", stamp_duty: project?.stamp_duty || "" }); setLandOpen(true); }}>
+              Land & duty
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+      <p className="text-xs text-muted-foreground -mt-2">Project cost is independent of contributions and loans — land + stamp duty + everything tracked below.</p>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {COST_CATEGORIES.map((cat) => (
           <Card key={cat} data-testid={`cost-cat-${cat.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>
@@ -648,6 +686,21 @@ function CostsTab({ projectId, costs, reload, partnerNames, readOnly }) {
           )}
         </CardContent>
       </Card>
+      <Dialog open={landOpen} onOpenChange={setLandOpen}>
+        <DialogContent data-testid="land-dialog">
+          <DialogHeader><DialogTitle className="font-heading">Land & Stamp Duty</DialogTitle></DialogHeader>
+          <form onSubmit={saveLand} className="space-y-4">
+            <div className="space-y-1.5"><Label>Land purchase price (AUD)</Label>
+              <Input data-testid="land-cost-input" type="number" step="0.01" required value={landForm.land_cost}
+                onChange={(e) => setLandForm({ land_cost: e.target.value, stamp_duty: calcStampDutyNSW(e.target.value) })} /></div>
+            <div className="space-y-1.5"><Label>Stamp duty (auto NSW — editable)</Label>
+              <Input data-testid="stamp-duty-input" type="number" step="0.01" value={landForm.stamp_duty}
+                onChange={(e) => setLandForm({ ...landForm, stamp_duty: e.target.value })} />
+              <p className="text-xs text-muted-foreground">Auto-calculated at NSW 2025-26 rates incl. premium duty — override if your assessment differs.</p></div>
+            <Button data-testid="land-save" type="submit" className="w-full">Save</Button>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
