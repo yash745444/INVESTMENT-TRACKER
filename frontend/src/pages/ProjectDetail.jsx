@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronUp, Copy, Pencil } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, ChevronDown, ChevronUp, Copy, Pencil, Layers, Lock, RotateCcw } from "lucide-react";
 import { DatePicker } from "../components/DatePicker";
 import { useAuth } from "../context/AuthContext";
 
@@ -24,17 +24,19 @@ export default function ProjectDetail() {
   const [contributions, setContributions] = useState([]);
   const [costs, setCosts] = useState([]);
   const [loans, setLoans] = useState([]);
+  const [batches, setBatches] = useState([]);
   const [profit, setProfit] = useState("");
 
   const load = async () => {
     try {
-      const [p, c, co, l] = await Promise.all([
+      const [p, c, co, l, b] = await Promise.all([
         api.get(`/projects/${id}`),
         api.get(`/projects/${id}/contributions`),
         api.get(`/projects/${id}/costs`),
         api.get(`/projects/${id}/loans`),
+        api.get(`/projects/${id}/batches`),
       ]);
-      setProject(p.data); setContributions(c.data); setCosts(co.data); setLoans(l.data);
+      setProject(p.data); setContributions(c.data); setCosts(co.data); setLoans(l.data); setBatches(b.data);
       setProfit(p.data.final_profit || "");
     } catch { toast.error("Failed to load project"); }
   };
@@ -176,7 +178,7 @@ export default function ProjectDetail() {
         </TabsContent>
 
         <TabsContent value="contributions" className="mt-5">
-          <ContributionsTab projectId={id} contributions={contributions} reload={load} partnerNames={partnerNames} partners={project.partners || []} readOnly={readOnly} memberPartner={memberPartner} />
+          <ContributionsTab projectId={id} contributions={contributions} reload={load} partnerNames={partnerNames} partners={project.partners || []} batches={batches} readOnly={readOnly} memberPartner={memberPartner} />
         </TabsContent>
         <TabsContent value="costs" className="mt-5">
           <CostsTab projectId={id} costs={costs} reload={load} partnerNames={partnerNames} readOnly={readOnly} />
@@ -202,34 +204,36 @@ function DataTable({ head, rows, testid }) {
   );
 }
 
-function ContributionsTab({ projectId, contributions, reload, partnerNames, partners, readOnly, memberPartner }) {
+function ContributionsTab({ projectId, contributions, reload, partnerNames, partners, batches, readOnly, memberPartner }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({ date: today(), partner: partnerNames?.[0] || "", amount: "", description: "" });
+  const [form, setForm] = useState({ date: today(), partner: partnerNames?.[0] || "", amount: "", description: "", batch_id: "" });
 
   const submit = async (e) => {
     e.preventDefault();
     try {
       if (!editing && !memberPartner && form.partner === "__company") {
-        const r = await api.post(`/projects/${projectId}/contributions/split`, { date: form.date, amount: Number(form.amount), description: form.description });
+        const r = await api.post(`/projects/${projectId}/contributions/split`, { date: form.date, amount: Number(form.amount), description: form.description, batch_id: form.batch_id || null });
         toast.success(`Company contribution split across ${r.data.inserted} partners`);
         setOpen(false);
-        setForm({ date: today(), partner: partnerNames?.[0] || "", amount: "", description: "" });
+        setForm({ date: today(), partner: partnerNames?.[0] || "", amount: "", description: "", batch_id: "" });
         reload();
         return;
       }
-      const payload = { ...form, partner: memberPartner || form.partner, amount: Number(form.amount) };
+      const payload = { ...form, partner: memberPartner || form.partner, amount: Number(form.amount), batch_id: form.batch_id || null };
       if (editing) await api.put(`/contributions/${editing}`, payload);
       else await api.post(`/projects/${projectId}/contributions`, payload);
       toast.success(editing ? "Contribution updated" : "Contribution added");
       setOpen(false);
       setEditing(null);
-      setForm({ date: today(), partner: partnerNames?.[0] || "", amount: "", description: "" });
+      setForm({ date: today(), partner: partnerNames?.[0] || "", amount: "", description: "", batch_id: "" });
       reload();
     } catch (err) { toast.error(apiError(err)); }
   };
 
   return (
+    <div className="space-y-5">
+    <BatchesSection projectId={projectId} batches={batches} partners={partners} reload={reload} readOnly={readOnly} />
     <Card>
       <CardHeader className="flex-row items-center justify-between space-y-0">
         <CardTitle className="font-heading text-lg">Capital Contributions</CardTitle>
@@ -266,6 +270,18 @@ function ContributionsTab({ projectId, contributions, reload, partnerNames, part
               )}
               <div className="space-y-1.5"><Label>Amount (AUD)</Label>
                 <Input data-testid="contribution-amount-input" type="number" step="0.01" required value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></div>
+              {batches.length > 0 && (
+                <div className="space-y-1.5"><Label>Batch (optional)</Label>
+                  <Select value={form.batch_id || "__none"} onValueChange={(v) => setForm({ ...form, batch_id: v === "__none" ? "" : v })}>
+                    <SelectTrigger data-testid="contribution-batch-select"><SelectValue placeholder="No batch" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none">No batch</SelectItem>
+                      {batches.filter((b) => b.status === "open" || b.id === form.batch_id).map((b) => (
+                        <SelectItem key={b.id} value={b.id}>{b.name} — {fmt(b.target_amount)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select></div>
+              )}
               <div className="space-y-1.5"><Label>Description</Label>
                 <Input data-testid="contribution-description-input" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="e.g. 10% Deposit" /></div>
               <Button data-testid="contribution-submit" type="submit" className="w-full">{editing ? "Save Changes" : "Save"}</Button>
@@ -285,10 +301,10 @@ function ContributionsTab({ projectId, contributions, reload, partnerNames, part
                 <td className="py-2.5">
                   <div className="flex">
                     <Button variant="ghost" size="icon" data-testid={`duplicate-contribution-${c.id}`} title="Duplicate (change partner)"
-                      onClick={() => { setEditing(null); setForm({ date: today(), partner: memberPartner || c.partner, amount: c.amount, description: c.description || "" }); setOpen(true); }}>
+                      onClick={() => { setEditing(null); setForm({ date: today(), partner: memberPartner || c.partner, amount: c.amount, description: c.description || "", batch_id: c.batch_id || "" }); setOpen(true); }}>
                       <Copy className="h-3.5 w-3.5" /></Button>
                     {!readOnly && (<Button variant="ghost" size="icon" data-testid={`edit-contribution-${c.id}`} title="Edit"
-                      onClick={() => { setEditing(c.id); setForm({ date: c.date, partner: c.partner, amount: c.amount, description: c.description || "" }); setOpen(true); }}>
+                      onClick={() => { setEditing(c.id); setForm({ date: c.date, partner: c.partner, amount: c.amount, description: c.description || "", batch_id: c.batch_id || "" }); setOpen(true); }}>
                       <Pencil className="h-3.5 w-3.5" /></Button>)}
                     {!readOnly && (<Button variant="ghost" size="icon" data-testid={`delete-contribution-${c.id}`}
                       onClick={async () => { await api.delete(`/contributions/${c.id}`); toast.success("Deleted"); reload(); }}>
@@ -298,6 +314,137 @@ function ContributionsTab({ projectId, contributions, reload, partnerNames, part
               </tr>
             ))} />
         )}
+      </CardContent>
+    </Card>
+    </div>
+  );
+}
+
+function BatchesSection({ projectId, batches, partners, reload, readOnly }) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ name: "", target: "", note: "" });
+
+  const submit = async (e) => {
+    e.preventDefault();
+    try {
+      await api.post(`/projects/${projectId}/batches`, { name: form.name.trim(), target_amount: Number(form.target), note: form.note });
+      toast.success("Batch started");
+      setOpen(false);
+      setForm({ name: "", target: "", note: "" });
+      reload();
+    } catch (err) { toast.error(apiError(err)); }
+  };
+
+  const closeBatch = async (b) => {
+    const rem = b.progress?.remaining_total || 0;
+    if (rem > 0.005 && !window.confirm(`${fmt(rem)} still unpaid in this batch. Close it anyway?`)) return;
+    try { await api.post(`/batches/${b.id}/close`); toast.success("Batch closed"); reload(); }
+    catch (err) { toast.error(apiError(err)); }
+  };
+
+  const statusChip = (pp) => pp.remaining <= 0.005
+    ? <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-secondary text-positive">PAID</span>
+    : pp.paid > 0
+    ? <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-secondary text-gold">PARTIAL</span>
+    : <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-secondary text-negative">UNPAID</span>;
+
+  return (
+    <Card data-testid="batches-card">
+      <CardHeader className="flex-row items-center justify-between space-y-0">
+        <div>
+          <CardTitle className="font-heading text-lg">Contribution Batches</CardTitle>
+          <p className="text-xs text-muted-foreground mt-1">Capital calls — start a batch, track who has paid their share, close when complete.</p>
+        </div>
+        {!readOnly && (
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild>
+            <Button size="sm" variant="outline" data-testid="new-batch-button"
+              onClick={() => setForm({ name: `Batch ${batches.length + 1}`, target: "", note: "" })}>
+              <Layers className="h-4 w-4 mr-1" /> New Batch
+            </Button>
+          </DialogTrigger>
+          <DialogContent data-testid="new-batch-dialog">
+            <DialogHeader><DialogTitle className="font-heading">Start Contribution Batch</DialogTitle></DialogHeader>
+            <form onSubmit={submit} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5"><Label>Batch name</Label>
+                  <Input data-testid="batch-name-input" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+                <div className="space-y-1.5"><Label>Target amount (AUD)</Label>
+                  <Input data-testid="batch-target-input" type="number" step="0.01" required value={form.target} onChange={(e) => setForm({ ...form, target: e.target.value })} /></div>
+              </div>
+              <div className="space-y-1.5"><Label>Note (optional)</Label>
+                <Input data-testid="batch-note-input" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} /></div>
+              {Number(form.target) > 0 && partners.length > 0 && (
+                <div className="rounded-lg border border-border p-3 space-y-1" data-testid="batch-split-preview">
+                  <p className="label-overline">Each partner's share</p>
+                  {partners.filter((pt) => pt.percentage > 0).map((pt) => (
+                    <div key={pt.name} className="flex justify-between text-xs font-mono" data-testid={`batch-preview-${pt.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>
+                      <span>{pt.name} ({pt.percentage}%)</span>
+                      <span>{fmt2(Number(form.target) * pt.percentage / 100)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <Button data-testid="batch-submit" type="submit" className="w-full">Start Batch</Button>
+            </form>
+          </DialogContent>
+        </Dialog>)}
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {batches.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No batches yet. Start one when you call capital from the partners.</p>
+        ) : batches.map((b) => {
+          const pr = b.progress;
+          const pctDone = pr.expected_total > 0 ? Math.min(100, pr.paid_total / pr.expected_total * 100) : 0;
+          return (
+            <div key={b.id} className="rounded-lg border border-border p-4 space-y-3" data-testid={`batch-card-${b.id}`}>
+              <div className="flex items-start justify-between gap-2 flex-wrap">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-heading font-semibold">{b.name}</h3>
+                    {b.status === "closed"
+                      ? <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-secondary text-muted-foreground" data-testid={`batch-status-${b.id}`}>CLOSED</span>
+                      : <span className="text-[10px] font-mono px-2 py-0.5 rounded-full border text-gold" style={{ borderColor: "hsl(var(--gold))" }} data-testid={`batch-status-${b.id}`}>OPEN</span>}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5 font-mono" data-testid={`batch-progress-${b.id}`}>
+                    {fmt2(pr.paid_total)} of {fmt2(pr.expected_total)} paid — {fmt2(Math.max(0, pr.remaining_total))} left
+                  </p>
+                </div>
+                {!readOnly && (
+                <div className="flex gap-1.5">
+                  {b.status === "open" ? (
+                    <Button size="sm" variant="ghost" data-testid={`batch-close-${b.id}`} title="Close batch" onClick={() => closeBatch(b)}>
+                      <Lock className="h-4 w-4" /></Button>
+                  ) : (
+                    <Button size="sm" variant="ghost" data-testid={`batch-reopen-${b.id}`} title="Reopen batch"
+                      onClick={async () => { await api.post(`/batches/${b.id}/reopen`); toast.success("Batch reopened"); reload(); }}>
+                      <RotateCcw className="h-4 w-4" /></Button>
+                  )}
+                  <Button size="sm" variant="ghost" data-testid={`batch-delete-${b.id}`} title="Delete batch"
+                    onClick={async () => {
+                      if (!window.confirm(`Delete batch "${b.name}"?`)) return;
+                      try { await api.delete(`/batches/${b.id}`); toast.success("Batch deleted"); reload(); }
+                      catch (err) { toast.error(apiError(err)); }
+                    }}>
+                    <Trash2 className="h-4 w-4 text-negative" /></Button>
+                </div>)}
+              </div>
+              <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
+                <div className="h-full rounded-full transition-all" style={{ width: `${pctDone}%`, background: "hsl(var(--gold))" }} />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {pr.partners.map((pp) => (
+                  <div key={pp.name} className="flex items-center justify-between gap-2 text-xs rounded border border-border/60 px-2.5 py-2"
+                    data-testid={`batch-partner-${b.id}-${pp.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>
+                    <span className="font-medium">{pp.name}</span>
+                    <span className="font-mono text-muted-foreground">{fmt2(pp.paid)} / {fmt2(pp.expected)}</span>
+                    {statusChip(pp)}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
       </CardContent>
     </Card>
   );

@@ -210,6 +210,7 @@ class ContributionIn(BaseModel):
     partner: str
     amount: float
     description: Optional[str] = ""
+    batch_id: Optional[str] = None
 
 
 class CostIn(BaseModel):
@@ -472,7 +473,7 @@ async def delete_project(pid: str, user=Depends(get_current_user)):
     if not existing or existing.get("user_id") != user["id"]:
         raise HTTPException(403, "Only the project owner can delete")
     await db.projects.delete_one({"_id": ObjectId(pid)})
-    for coll in ("contributions", "costs", "loans"):
+    for coll in ("contributions", "costs", "loans", "contribution_batches"):
         await db[coll].delete_many({"project_id": pid})
     return {"ok": True}
 
@@ -519,7 +520,13 @@ async def add_contribution(pid: str, data: ContributionIn, user=Depends(get_curr
         my_partner = next((pt for pt in p.get("partners", []) if pt.get("email") == user["email"]), None)
         if not my_partner or data.partner != my_partner.get("name"):
             raise HTTPException(403, "You can only add contributions under your own partner name")
+    if data.batch_id:
+        b = await db.contribution_batches.find_one({"_id": ObjectId(data.batch_id), "project_id": pid})
+        if not b:
+            raise HTTPException(400, "Invalid batch")
     doc = data.model_dump(); doc["project_id"] = pid; doc["user_id"] = p["user_id"]
+    if not doc.get("batch_id"):
+        doc.pop("batch_id", None)
     res = await db.contributions.insert_one(doc)
     return doc_out(await db.contributions.find_one({"_id": res.inserted_id}))
 
@@ -528,6 +535,7 @@ class SplitContributionIn(BaseModel):
     date: str
     amount: float
     description: Optional[str] = ""
+    batch_id: Optional[str] = None
 
 
 @app.post("/api/projects/{pid}/contributions/split")
@@ -538,6 +546,10 @@ async def add_contribution_split(pid: str, data: SplitContributionIn, user=Depen
     partners = [pt for pt in p.get("partners", []) if pt.get("percentage", 0) > 0]
     if not partners:
         raise HTTPException(400, "Project has no partners with ownership percentages")
+    if data.batch_id:
+        b = await db.contribution_batches.find_one({"_id": ObjectId(data.batch_id), "project_id": pid})
+        if not b:
+            raise HTTPException(400, "Invalid batch")
     docs = []
     allocated = 0.0
     for i, pt in enumerate(partners):
@@ -545,11 +557,108 @@ async def add_contribution_split(pid: str, data: SplitContributionIn, user=Depen
         if i == len(partners) - 1:
             amt = round(data.amount - allocated, 2)  # remainder to last partner so total stays exact
         allocated += amt
-        docs.append({"date": data.date, "partner": pt["name"], "amount": amt,
-                     "description": f"{data.description or 'Company contribution'} (company split {pt['percentage']}%)",
-                     "project_id": pid, "user_id": p["user_id"]})
+        d = {"date": data.date, "partner": pt["name"], "amount": amt,
+             "description": f"{data.description or 'Company contribution'} (company split {pt['percentage']}%)",
+             "project_id": pid, "user_id": p["user_id"]}
+        if data.batch_id:
+            d["batch_id"] = data.batch_id
+        docs.append(d)
     await db.contributions.insert_many(docs)
     return {"inserted": len(docs), "total": round(allocated, 2)}
+
+
+# ---------------- contribution batches (capital calls) ----------------
+
+class BatchIn(BaseModel):
+    name: str
+    target_amount: float
+    note: Optional[str] = ""
+
+
+async def get_batch_checked(bid: str, user: dict, write: bool = False):
+    b = await db.contribution_batches.find_one({"_id": ObjectId(bid)})
+    if not b:
+        raise HTTPException(404, "Batch not found")
+    p = await get_project_access(b["project_id"], user)
+    if write and p.get("user_id") != user["id"]:
+        raise HTTPException(403, "Only the project owner can manage batches")
+    return b
+
+
+async def batch_progress(batch_id: str, target: float, project: dict) -> dict:
+    paid_by = {}
+    async for c in db.contributions.find({"batch_id": batch_id}):
+        paid_by[c["partner"]] = paid_by.get(c["partner"], 0.0) + c["amount"]
+    partners = []
+    paid_total = 0.0
+    expected_total = 0.0
+    for pt in project.get("partners", []):
+        pct = pt.get("percentage", 0)
+        exp = round(target * pct / 100, 2)
+        paid = round(paid_by.get(pt["name"], 0.0), 2)
+        partners.append({"name": pt["name"], "percentage": pct, "expected": exp,
+                         "paid": paid, "remaining": round(exp - paid, 2)})
+        paid_total += paid
+        expected_total += exp
+    return {"partners": partners, "paid_total": round(paid_total, 2),
+            "expected_total": round(expected_total, 2),
+            "remaining_total": round(expected_total - paid_total, 2),
+            "fully_paid": all(pp["remaining"] <= 0.005 for pp in partners)}
+
+
+@app.get("/api/projects/{pid}/batches")
+async def list_batches(pid: str, user=Depends(get_current_user)):
+    p = await get_project_access(pid, user)
+    out = []
+    async for b in db.contribution_batches.find({"project_id": pid}).sort("created_at", 1):
+        b = doc_out(b)
+        b["progress"] = await batch_progress(b["id"], b["target_amount"], p)
+        out.append(b)
+    return out
+
+
+@app.post("/api/projects/{pid}/batches")
+async def add_batch(pid: str, data: BatchIn, user=Depends(get_current_user)):
+    p = await get_project_access(pid, user)
+    if p.get("user_id") != user["id"]:
+        raise HTTPException(403, "Only the project owner can create batches")
+    if data.target_amount <= 0:
+        raise HTTPException(400, "Target amount must be positive")
+    doc = data.model_dump()
+    doc["project_id"] = pid
+    doc["user_id"] = p["user_id"]
+    doc["status"] = "open"
+    doc["created_at"] = now_utc().isoformat()
+    res = await db.contribution_batches.insert_one(doc)
+    b = doc_out(await db.contribution_batches.find_one({"_id": res.inserted_id}))
+    b["progress"] = await batch_progress(b["id"], b["target_amount"], p)
+    return b
+
+
+@app.post("/api/batches/{bid}/close")
+async def close_batch(bid: str, user=Depends(get_current_user)):
+    await get_batch_checked(bid, user, write=True)
+    await db.contribution_batches.update_one({"_id": ObjectId(bid)},
+        {"$set": {"status": "closed", "closed_at": now_utc().isoformat()}})
+    return doc_out(await db.contribution_batches.find_one({"_id": ObjectId(bid)}))
+
+
+@app.post("/api/batches/{bid}/reopen")
+async def reopen_batch(bid: str, user=Depends(get_current_user)):
+    await get_batch_checked(bid, user, write=True)
+    await db.contribution_batches.update_one({"_id": ObjectId(bid)},
+        {"$set": {"status": "open"}, "$unset": {"closed_at": ""}})
+    return doc_out(await db.contribution_batches.find_one({"_id": ObjectId(bid)}))
+
+
+@app.delete("/api/batches/{bid}")
+async def delete_batch(bid: str, user=Depends(get_current_user)):
+    await get_batch_checked(bid, user, write=True)
+    linked = await db.contributions.count_documents({"batch_id": bid})
+    if linked:
+        raise HTTPException(400, f"Batch has {linked} linked contribution(s) — remove them first")
+    await db.contribution_batches.delete_one({"_id": ObjectId(bid)})
+    return {"ok": True}
 
 
 @app.put("/api/contributions/{cid}")
@@ -557,7 +666,14 @@ async def update_contribution(cid: str, data: ContributionIn, user=Depends(get_c
     c = await db.contributions.find_one({"_id": ObjectId(cid)})
     if not c or c.get("user_id") != user["id"]:
         raise HTTPException(403, "Not allowed")
-    await db.contributions.update_one({"_id": ObjectId(cid)}, {"$set": data.model_dump()})
+    if data.batch_id:
+        b = await db.contribution_batches.find_one({"_id": ObjectId(data.batch_id), "project_id": c["project_id"]})
+        if not b:
+            raise HTTPException(400, "Invalid batch")
+    doc = data.model_dump()
+    if not doc.get("batch_id"):
+        doc["batch_id"] = None
+    await db.contributions.update_one({"_id": ObjectId(cid)}, {"$set": doc})
     return doc_out(await db.contributions.find_one({"_id": ObjectId(cid)}))
 
 
