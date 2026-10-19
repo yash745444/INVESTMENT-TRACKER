@@ -133,6 +133,12 @@ eToro has NO public API for portfolio sync. Shares holdings are entered once (sy
 - Verified live: 9 positions synced (BTC 0.0148 @ $82.6k, AMZN/NVDA×4/HXL/SATL/SATS.OL) ≈ $31k USD
 - Testing: curl-verified end-to-end incl. PIN redaction of synced rows
 
+## Bug fix (2026-10-19, iteration 13b — eToro valuation)
+- BUG: eToro worth was computed as units × price = leveraged NOTIONAL exposure ($31k USD / ~$44.5k AUD) — wrong for margined CFD positions
+- FIX: sync now also calls /trading/info/real/pnl and stores per-position unrealized pnL + is_buy; worth = invested (initialAmountInDollars) + unrealized P&L everywhere (frontend worthOf + backend investment_native/investment_worth_aud share the same formula); sync response returns total_value_usd for the toast
+- Row display for eToro entries: "SYMBOL · invested $X · P&L ±$Y (±%) = worth ≈ AUD"
+- Verified live: 9 positions, total $17,319 USD ≈ $24,812 AUD @0.698 — matches user's eToro app (~$24,776; drift = live prices/FX)
+
 ## Backlog
 - P2: split server.py (1558 lines) into routers (auth/projects/report/ledger)
 - P1: Edit project (name/partners %) from UI; settle-up shortcut button per pair
