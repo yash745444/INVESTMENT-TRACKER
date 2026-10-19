@@ -16,6 +16,7 @@ import { Plus, Trash2, Pencil, Lock, RefreshCw, Search } from "lucide-react";
 
 const TYPES = [
   { key: "shares", label: "Shares" },
+  { key: "crypto", label: "Crypto" },
   { key: "term_insurance", label: "Term Insurance" },
   { key: "other", label: "Other Investments" },
 ];
@@ -33,6 +34,7 @@ export default function Investments() {
   const [searchQ, setSearchQ] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const searchTimer = useRef(null);
 
   const load = async () => {
@@ -42,21 +44,22 @@ export default function Investments() {
   useEffect(() => { load(); }, []);
 
   const toAud = (amount, cur) => rates ? amount / (rates[cur] || 1) : 0;
-  const worthOf = (i) => (i.type === "shares" && i.symbol && i.quantity && i.current_price)
+  const isMarket = (i) => (i.type === "shares" || i.type === "crypto") && i.symbol;
+  const worthOf = (i) => (isMarket(i) && i.quantity && i.current_price)
     ? i.quantity * i.current_price : i.amount;
-  const worthCur = (i) => (i.type === "shares" && i.symbol) ? (i.price_currency || i.currency) : i.currency;
+  const worthCur = (i) => isMarket(i) ? (i.price_currency || i.currency) : i.currency;
 
   const submit = async (e) => {
     e.preventDefault();
     try {
-      const qty = form.type === "shares"
+      const qty = (form.type === "shares" || form.type === "crypto")
         ? (form.qty_mode === "amount" && Number(form.buy_price) > 0
             ? Number(form.invested_amount) / Number(form.buy_price)
             : Number(form.quantity) || 0)
         : 0;
       const payload = {
         ...form,
-        amount: form.type === "shares" && form.symbol
+        amount: (form.type === "shares" || form.type === "crypto") && form.symbol
           ? qty * (Number(form.current_price) || 0)
           : Number(form.amount),
         quantity: qty,
@@ -73,7 +76,7 @@ export default function Investments() {
   };
 
   const totalAud = items?.reduce((s, i) => s + toAud(worthOf(i), worthCur(i)), 0) || 0;
-  const sharesCount = items?.filter((i) => i.type === "shares").length || 0;
+  const sharesCount = items?.filter((i) => i.type === "shares" || i.type === "crypto").length || 0;
   const effectiveQty = form.qty_mode === "amount" && Number(form.buy_price) > 0
     ? (Number(form.invested_amount) || 0) / Number(form.buy_price)
     : Number(form.quantity) || 0;
@@ -105,7 +108,7 @@ export default function Investments() {
   };
 
   const refreshPrices = async () => {
-    const shares = (items || []).filter((i) => i.type === "shares" && i.symbol);
+    const shares = (items || []).filter((i) => i.type === "shares" && i.symbol && i.source !== "etoro");
     let ok = 0;
     for (const s of shares) {
       try {
@@ -118,6 +121,17 @@ export default function Investments() {
     load();
   };
 
+  const syncEtoro = async () => {
+    setSyncing(true);
+    try {
+      const r = await api.post("/integrations/etoro/sync");
+      toast.success(`Synced ${r.data.synced} eToro position${r.data.synced === 1 ? "" : "s"}`);
+      (r.data.warnings || []).forEach((w) => toast.warning(w));
+      load();
+    } catch (err) { toast.error(apiError(err)); }
+    setSyncing(false);
+  };
+
   return (
     <div className="space-y-6" data-testid="investments-page">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -128,6 +142,9 @@ export default function Investments() {
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" data-testid="etoro-sync-button" disabled={syncing} onClick={syncEtoro}>
+            <RefreshCw className={`h-4 w-4 mr-1.5 ${syncing ? "animate-spin" : ""}`} /> {syncing ? "Syncing…" : "Sync eToro"}
+          </Button>
           {!unlocked && sharesCount > 0 && (
             <Button variant="outline" data-testid="unlock-shares-inv-button" onClick={() => setPinOpen(true)}>
               <Lock className="h-4 w-4 mr-1.5" /> Reveal Shares
@@ -149,7 +166,7 @@ export default function Investments() {
                     <SelectTrigger data-testid="inv-type-select"><SelectValue /></SelectTrigger>
                     <SelectContent>{TYPES.map((t) => <SelectItem key={t.key} value={t.key}>{t.label}</SelectItem>)}</SelectContent>
                   </Select></div>
-                {form.type === "shares" ? (
+                {form.type === "shares" || form.type === "crypto" ? (
                   <div className="space-y-1.5"><Label>Leverage</Label>
                     <Select value={String(form.leverage)} onValueChange={(v) => setForm({ ...form, leverage: Number(v) })}>
                       <SelectTrigger data-testid="inv-leverage-select"><SelectValue /></SelectTrigger>
@@ -168,7 +185,7 @@ export default function Investments() {
                 )}
               </div>
 
-              {form.type === "shares" && (
+              {(form.type === "shares" || form.type === "crypto") && (
                 <div className="space-y-1.5 relative">
                   <Label>Search market</Label>
                   <div className="relative">
@@ -196,10 +213,10 @@ export default function Investments() {
               <div className="space-y-1.5"><Label>Name</Label>
                 <Input data-testid="inv-name-input" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Apple shares / TAL Term Life" /></div>
 
-              {form.type === "shares" ? (
+              {form.type === "shares" || form.type === "crypto" ? (
                 <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5"><Label>Buy price / share</Label>
+                    <div className="space-y-1.5"><Label>Buy price / unit</Label>
                       <Input data-testid="inv-buy-price-input" type="number" step="any" value={form.buy_price}
                         onChange={(e) => setForm({ ...form, buy_price: e.target.value })} placeholder="What you paid" /></div>
                     <div className="space-y-1.5"><Label>Input mode</Label>
@@ -239,7 +256,7 @@ export default function Investments() {
               )}
               <div className="space-y-1.5"><Label>Date</Label>
                 <DatePicker testid="inv-date-input" value={form.date} onChange={(v) => setForm({ ...form, date: v })} /></div>
-              {form.type === "shares" && effectiveQty > 0 && Number(form.current_price) > 0 ? (
+              {(form.type === "shares" || form.type === "crypto") && effectiveQty > 0 && Number(form.current_price) > 0 ? (
                 <p className="text-xs font-mono text-muted-foreground" data-testid="inv-worth-preview">
                   Worth: {fmt2(effectiveQty * Number(form.current_price), form.price_currency || form.currency)}
                   {Number(form.leverage) > 1 && ` · Exposure ×${form.leverage}: ${fmt2(effectiveQty * Number(form.current_price) * form.leverage, form.price_currency || form.currency)}`}
@@ -261,7 +278,7 @@ export default function Investments() {
           {TYPES.map((t) => {
             const group = items.filter((i) => i.type === t.key);
             const groupTotal = group.reduce((s, i) => s + toAud(worthOf(i), worthCur(i)), 0);
-            const masked = t.key === "shares" && !unlocked;
+            const masked = (t.key === "shares" || t.key === "crypto") && !unlocked;
             return (
               <Card key={t.key} data-testid={`inv-group-${t.key}`}>
                 <CardHeader className="pb-3">
@@ -286,12 +303,15 @@ export default function Investments() {
                           <div className="min-w-0">
                             <p className="text-sm font-medium truncate">
                               {i.name}
+                              {i.source === "etoro" && (
+                                <span className="ml-1.5 text-[10px] font-mono px-1.5 py-0.5 rounded border text-gold" style={{ borderColor: "hsl(var(--gold))" }} data-testid={`etoro-badge-${i.id}`}>eToro</span>
+                              )}
                               {i.type === "shares" && Number(i.leverage) > 1 && (
                                 <span className="ml-1.5 text-[10px] font-mono px-1.5 py-0.5 rounded border text-gold" style={{ borderColor: "hsl(var(--gold))" }}>×{i.leverage}</span>
                               )}
                             </p>
                             <p className="font-mono text-xs text-muted-foreground mt-0.5">
-                              {i.type === "shares" && i.symbol
+                              {(i.type === "shares" || i.type === "crypto") && i.symbol
                                 ? `${i.symbol} · ${Number(i.quantity).toFixed(4).replace(/\.?0+$/, "")} × ${fmt2(i.current_price, i.price_currency || i.currency)} = ${fmt2(worthOf(i), worthCur(i))}${worthCur(i) !== "AUD" ? ` ≈ ${fmt(toAud(worthOf(i), worthCur(i)))}` : ""}${i.buy_price ? ` · P&L ${(((i.current_price - i.buy_price) / i.buy_price) * 100).toFixed(1)}%` : ""}`
                                 : `${fmt2(i.amount, i.currency)}${i.currency !== "AUD" ? ` ≈ ${fmt(toAud(i.amount, i.currency))}` : ""}`}
                             </p>

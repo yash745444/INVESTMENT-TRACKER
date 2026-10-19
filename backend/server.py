@@ -1035,8 +1035,8 @@ async def list_investments(request: Request, user=Depends(get_current_user)):
     out = []
     async for d in db.investments.find({"user_id": user["id"]}).sort("created_at", -1):
         d = doc_out(d)
-        if d.get("type") == "shares" and not visible:
-            out.append({"id": d["id"], "type": "shares", "name": "Hidden holding", "symbol": "",
+        if d.get("type") in ("shares", "crypto") and not visible:
+            out.append({"id": d["id"], "type": d.get("type"), "name": "Hidden holding", "symbol": "",
                         "quantity": 0, "leverage": 1, "current_price": 0, "price_currency": "",
                         "currency": "AUD", "amount": 0, "date": "", "notes": "", "redacted": True})
         else:
@@ -1417,6 +1417,121 @@ async def market_quote(ticker: str, user=Depends(get_current_user)):
     return result
 
 
+# ---------------- etoro sync ----------------
+
+ETORO_BASE = "https://public-api.etoro.com/api/v1"
+
+
+async def etoro_get(path: str, params: dict = None) -> dict:
+    import uuid
+    import random
+    api_key = os.environ.get("ETORO_API_KEY")
+    user_key = os.environ.get("ETORO_USER_KEY")
+    if not api_key or not user_key:
+        raise HTTPException(503, "eToro API keys not configured")
+    headers = {"x-api-key": api_key, "x-user-key": user_key,
+               "x-request-id": str(uuid.uuid4()), "Accept": "application/json"}
+    async with httpx.AsyncClient(base_url=ETORO_BASE, timeout=20) as client:
+        for attempt in range(4):
+            r = await client.get(path, params=params, headers=headers)
+            if r.status_code == 429:
+                retry = float(r.headers.get("Retry-After", min(2 ** attempt, 30)))
+                await asyncio.sleep(retry + random.random())
+                continue
+            if r.status_code in (401, 403):
+                raise HTTPException(502, f"eToro rejected the API keys ({r.status_code}) — check key permissions/environment")
+            if r.status_code != 200:
+                raise HTTPException(502, f"eToro API error {r.status_code}: {r.text[:200]}")
+            return r.json()
+    raise HTTPException(502, "eToro rate limit exceeded — try again in a minute")
+
+
+async def etoro_instrument_meta(ids: list) -> dict:
+    if not ids:
+        return {}
+    cached = {}
+    async for d in db.etoro_instruments.find({"_id": {"$in": ids}}):
+        cached[d["_id"]] = {"symbol": d.get("symbol"), "name": d.get("name"), "asset_type": d.get("asset_type")}
+    missing = [i for i in ids if i not in cached]
+    if missing:
+        try:
+            data = await etoro_get("/market-data/instruments", {"instrumentIds": ",".join(map(str, missing))})
+        except HTTPException:
+            data = {}
+        for it in (data.get("instrumentDisplayDatas") or data.get("instruments") or data.get("items") or []):
+            iid = it.get("instrumentID") or it.get("instrumentId")
+            if iid is None:
+                continue
+            iid = int(iid)
+            tid = it.get("instrumentTypeID")
+            tname = str(it.get("instrumentTypeName") or it.get("type") or "").lower()
+            asset = ("crypto" if tid == 10 or "crypto" in tname
+                     else "stock" if tid == 5 or "stock" in tname or "etf" in tname
+                     else "unknown")
+            symbol = it.get("symbolFull") or it.get("internalSymbolFull") or it.get("symbol") or str(iid)
+            name = it.get("instrumentDisplayName") or it.get("displayName") or symbol
+            cached[iid] = {"symbol": symbol, "name": name, "asset_type": asset}
+            await db.etoro_instruments.update_one({"_id": iid},
+                {"$set": {"symbol": symbol, "name": name, "asset_type": asset,
+                          "fetched_at": now_utc().isoformat()}}, upsert=True)
+    return cached
+
+
+@app.post("/api/integrations/etoro/sync")
+async def etoro_sync(user=Depends(get_current_user)):
+    portfolio = await etoro_get("/trading/info/portfolio")
+    raw = (portfolio.get("clientPortfolio") or portfolio).get("positions", []) or []
+    ids = sorted({int(p.get("instrumentID") or p.get("instrumentId")) for p in raw
+                  if (p.get("instrumentID") or p.get("instrumentId")) is not None})
+    rates_by_id = {}
+    for i in range(0, len(ids), 100):
+        rd = await etoro_get("/market-data/instruments/rates",
+                             {"instrumentIds": ",".join(map(str, ids[i:i + 100]))})
+        for x in rd.get("rates", []):
+            iid = x.get("instrumentID") or x.get("instrumentId")
+            if iid is not None:
+                rates_by_id[int(iid)] = x
+    meta = await etoro_instrument_meta(ids)
+    warnings = []
+    seen = []
+    now = now_utc().isoformat()
+    for p in raw:
+        iid = p.get("instrumentID") or p.get("instrumentId")
+        if iid is None:
+            continue
+        iid = int(iid)
+        pid = str(p.get("positionID") or p.get("positionId") or f"{iid}-{p.get('openDateTime', '')}")
+        m = meta.get(iid, {})
+        symbol = m.get("symbol") or f"ETORO-{iid}"
+        asset = m.get("asset_type") or "unknown"
+        rate = rates_by_id.get(iid, {})
+        price = rate.get("lastExecution") or rate.get("ask") or rate.get("bid") or 0
+        qty = p.get("units") or p.get("initialUnits") or 0
+        inv_type = {"stock": "shares", "crypto": "crypto"}.get(asset, "other")
+        if asset == "unknown":
+            warnings.append(f"Instrument {iid} type unmapped — stored under Other")
+        doc = {
+            "user_id": user["id"], "source": "etoro",
+            "external_position_id": pid, "etoro_instrument_id": iid,
+            "type": inv_type, "name": m.get("name") or symbol,
+            "symbol": symbol if inv_type in ("shares", "crypto") else "",
+            "currency": "USD", "price_currency": "USD",
+            "quantity": qty, "current_price": price,
+            "buy_price": p.get("openRate") or 0,
+            "amount": p.get("initialAmountInDollars") or p.get("amount") or qty * price or 0,
+            "leverage": p.get("leverage") or 1, "date": str(p.get("openDateTime", ""))[:10],
+            "notes": f"eToro position {pid}", "synced_at": now,
+        }
+        await db.investments.update_one(
+            {"user_id": user["id"], "source": "etoro", "external_position_id": pid},
+            {"$set": doc}, upsert=True)
+        seen.append(pid)
+    await db.investments.delete_many({"user_id": user["id"], "source": "etoro",
+                                      "external_position_id": {"$nin": seen}})
+    await db.users.update_one({"_id": ObjectId(user["id"])}, {"$set": {"etoro_last_sync": now}})
+    return {"synced": len(seen), "warnings": warnings, "synced_at": now}
+
+
 # ---------------- shares privacy ----------------
 
 class PinIn(BaseModel):
@@ -1448,14 +1563,14 @@ def shares_visible(request: Request) -> bool:
 # ---------------- dashboard ----------------
 
 def investment_native(inv):
-    if inv.get("type") == "shares" and inv.get("symbol"):
+    if inv.get("type") in ("shares", "crypto") and inv.get("symbol"):
         return round((inv.get("quantity") or 0) * (inv.get("current_price") or 0), 2), \
             (inv.get("price_currency") or inv.get("currency", "AUD"))
     return inv.get("amount", 0), inv.get("currency", "AUD")
 
 
 def investment_worth_aud(inv, rates):
-    if inv.get("type") == "shares" and inv.get("symbol") and inv.get("quantity") and inv.get("current_price"):
+    if inv.get("type") in ("shares", "crypto") and inv.get("symbol") and inv.get("quantity") and inv.get("current_price"):
         return to_aud(inv["quantity"] * inv["current_price"],
                       inv.get("price_currency") or inv.get("currency", "AUD"), rates)
     return to_aud(inv.get("amount", 0), inv.get("currency", "AUD"), rates)
@@ -1472,14 +1587,15 @@ async def _dashboard_data(request: Request, user: dict) -> dict:
     inv_by_type = {}
     for i, w in zip(investments, worths):
         inv_by_type[i["type"]] = inv_by_type.get(i["type"], 0) + w
-    shares_count = sum(1 for i in investments if i.get("type") == "shares")
+    shares_count = sum(1 for i in investments if i.get("type") in ("shares", "crypto"))
     visible = shares_visible(request)
     if visible:
-        shares_total = inv_by_type.get("shares", 0)
+        shares_total = inv_by_type.get("shares", 0) + inv_by_type.get("crypto", 0)
     else:
         shares_total = 0
-        inv_total -= sum(w for i, w in zip(investments, worths) if i.get("type") == "shares")
+        inv_total -= sum(w for i, w in zip(investments, worths) if i.get("type") in ("shares", "crypto"))
         inv_by_type.pop("shares", None)
+        inv_by_type.pop("crypto", None)
 
     properties = [doc_out(d) async for d in db.properties.find(
         {"$or": [{"user_id": user["id"]}, {"partners.email": user["email"]}]})]
@@ -1581,7 +1697,7 @@ async def networth_report(request: Request, user=Depends(get_current_user)):
     investments = []
     async for i in db.investments.find({"user_id": user["id"]}):
         i = doc_out(i)
-        if i.get("type") == "shares" and not visible:
+        if i.get("type") in ("shares", "crypto") and not visible:
             investments.append({"name": "Hidden holding", "type": "shares", "native": None,
                                 "currency": "", "worth_aud": None, "redacted": True})
             continue

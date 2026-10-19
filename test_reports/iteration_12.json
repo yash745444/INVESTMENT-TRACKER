@@ -1,0 +1,19 @@
+{
+  "summary": "Iteration 12 (Project Cost rework + stamp duty + Equity fallback) tested end-to-end. 8 backend tests (test_iteration12.py) PASS. Frontend verified via Playwright: MAISON 7 shows 6 stat cards (no Cash Position), Project Cost $7,048,897, Equity $2,088,897, Loan Outstanding $4,960,000; Costs tab shows project-cost-card banner with cost-land/duty/tracked/total and edit-land-button opens land-dialog prefilled (land=6610000, duty=388897) with all required testids. Dashboard shows MY EQUITY $208,890 for MAISON 7 (10% of 2,088,897). calcStampDutyNSW(6610000)=388897 verified via node; 500000=16950, 0=0. Scratch project CRUD: POST/GET persists land+duty, adding $25k tracked cost raises project_cost by exactly $25k and equity by $25k (contributions untouched), PUT round-trips, DELETE cleans up. Fallback: project with no cost/contrib → equity=0. All 8/8 tests pass.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_iteration12.py", "/app/test_reports/pytest/iteration12.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is 1817 lines — consider splitting by domain (projects/costs/loans/dashboard/report) for maintainability",
+    "PUT /api/projects/{pid} requires full ProjectIn body (name/status/ownership) — if frontend edit dialog only sends changed fields it will 422; consider PATCH or Optional[...] fields for partial updates"
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration12.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "yash.sojitra34@gmail.com / Yash@2026 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Scratch TEST_IT12_* projects created and deleted within tests. MAISON 7 data not modified.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend endpoint for cost add is POST /api/projects/{pid}/costs with CostIn fields (date, category, description, amount, paid_by). Dashboard projects shape: {'list': [...]} with my_percentage/loan_outstanding/my_equity/project_cost. ProjectIn PUT requires full payload. Live MAISON 7 totals: project_cost=7,048,897 equity=2,088,897 (land 6,610,000 + duty 388,897 + tracked 50,000; drawn 4,960,000).",
+  "rca of the issue": "N/A — all iteration 12 requirements verified passing."
+}
