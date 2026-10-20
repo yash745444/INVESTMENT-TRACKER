@@ -1718,15 +1718,18 @@ async def _dashboard_data(request: Request, user: dict) -> dict:
     loans_outstanding = 0.0
     my_equity_total = 0.0
     my_loan_share_total = 0.0
-    async for p in db.projects.find({"user_id": user["id"]}):
+    async for p in db.projects.find({"$or": [{"user_id": user["id"]}, {"partners.email": user["email"]}]}):
         p = doc_out(p)
         pid = p["id"]
-        my_pct = next((pt.get("percentage", 0) for pt in p.get("partners", []) if pt.get("name") == my_name), 0)
+        my_partner = next((pt for pt in p.get("partners", [])
+                           if pt.get("email") == user["email"] or pt.get("name") == my_name), None)
+        my_pct = my_partner.get("percentage", 0) if my_partner else 0
+        my_pname = my_partner.get("name") if my_partner else my_name
         contrib_mine = 0.0
         total_contrib = 0.0
         async for c in db.contributions.find({"project_id": pid}):
             total_contrib += c["amount"]
-            if c.get("partner") == my_name:
+            if c.get("partner") == my_pname:
                 contrib_mine += c["amount"]
         total_costs = 0.0
         async for c in db.costs.find({"project_id": pid}):
@@ -1746,6 +1749,7 @@ async def _dashboard_data(request: Request, user: dict) -> dict:
         my_equity_total += my_equity
         my_loan_share_total += my_loan_share
         projects.append({"id": pid, "name": p["name"], "my_percentage": my_pct,
+                         "shared": p.get("user_id") != user["id"],
                          "my_contributions": contrib_mine, "my_equity": round(my_equity, 2),
                          "project_cost": project_cost,
                          "loan_outstanding": outstanding, "my_loan_share": round(my_loan_share, 2),

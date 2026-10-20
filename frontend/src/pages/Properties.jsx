@@ -30,7 +30,7 @@ export default function Properties() {
     try {
       const payload = {
         ...form,
-        partners: (form.partners || []).filter((p) => p.name?.trim()).map((p) => ({ name: p.name.trim(), percentage: Number(p.percentage) || 0 })),
+        partners: (form.partners || []).filter((p) => p.name?.trim()).map((p) => ({ name: p.name.trim(), percentage: Number(p.percentage) || 0, email: (p.email || "").trim().toLowerCase() })),
         purchase_price: Number(form.purchase_price) || 0,
         current_value: Number(form.current_value) || 0,
         monthly_rent: Number(form.monthly_rent) || 0,
@@ -82,13 +82,20 @@ export default function Properties() {
               </div>
               <div className="space-y-2">
                 <Label>Partnership (ownership %)</Label>
+                <p className="text-xs text-muted-foreground">Add the person's account email to link the property to their login — they'll see it (read-only) with their equity share.</p>
                 <datalist id="prop-people-list">
                   {people.map((p) => <option key={p.id} value={p.name} />)}
                 </datalist>
                 {(form.partners || []).map((pt, i) => (
                   <div key={i} className="flex items-center gap-2">
                     <Input data-testid={`prop-partner-name-${i}`} value={pt.name} placeholder="Partner name" list="prop-people-list"
-                      onChange={(e) => setForm({ ...form, partners: form.partners.map((r, j) => j === i ? { ...r, name: e.target.value } : r) })} />
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        const match = people.find((p) => p.name.toLowerCase() === v.toLowerCase());
+                        setForm({ ...form, partners: form.partners.map((r, j) => j === i ? { ...r, name: v, email: match?.email || r.email } : r) });
+                      }} />
+                    <Input data-testid={`prop-partner-email-${i}`} value={pt.email || ""} placeholder="account email"
+                      onChange={(e) => setForm({ ...form, partners: form.partners.map((r, j) => j === i ? { ...r, email: e.target.value } : r) })} />
                     <Input data-testid={`prop-partner-pct-${i}`} type="number" step="0.01" className="w-24 shrink-0" value={pt.percentage}
                       onChange={(e) => setForm({ ...form, partners: form.partners.map((r, j) => j === i ? { ...r, percentage: e.target.value } : r) })} />
                     <Button type="button" variant="ghost" size="icon" data-testid={`prop-partner-remove-${i}`}
@@ -97,7 +104,7 @@ export default function Properties() {
                   </div>
                 ))}
                 <Button type="button" variant="outline" size="sm" data-testid="prop-add-partner"
-                  onClick={() => setForm({ ...form, partners: [...(form.partners || []), { name: "", percentage: "" }] })}>
+                  onClick={() => setForm({ ...form, partners: [...(form.partners || []), { name: "", percentage: "", email: "" }] })}>
                   <Plus className="h-3.5 w-3.5 mr-1" /> Add partner
                 </Button>
               </div>
