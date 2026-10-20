@@ -164,6 +164,10 @@ eToro has NO public API for portfolio sync. Shares holdings are entered once (sy
 - Owner-only enforcement verified: linked partners cannot edit/delete shared properties (404)
 - Verified end-to-end: 40% partner sees property equity $160k and project equity $400k on their dashboard; net worth reflects both
 
+## Data task (2026-10-20, iteration 17b — partner account linking done)
+- MAISON 7 partners already carry login emails (all 9, incl. Amil amil.shingala17@gmail.com) — they'll see their equity on sign-in
+- Linked all 3 properties (QLD 1, TAS 2, TAS 1) partner rows to account emails, matched from MAISON 7 partner data (Pranay pranaya30@gmail.com, Sanjay sanjayjogani@hotmail.com, Bhautik bhautik.vadher@gmail.com, Yash) — verified all linked
+
 ## Backlog
 - P2: split server.py (1558 lines) into routers (auth/projects/report/ledger)
 - P1: Edit project (name/partners %) from UI; settle-up shortcut button per pair
