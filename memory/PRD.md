@@ -149,6 +149,15 @@ eToro has NO public API for portfolio sync. Shares holdings are entered once (sy
 - Investments: "Lock Shares" button (lock-shares-inv-button) appears when unlocked — clears sessionStorage + cookie, reloads into masked state; Dashboard: "Lock shares" pill (lock-shares-button) next to net-worth controls; dashboard auto-syncs locked UI when server reports redaction
 - Verified via Playwright: Reveal → PIN → Lock Shares visible → click → masked "••••" + Reveal returns
 
+## Implemented (2026-10-20, iteration 16 — per-person module access control)
+- Per-user access lists (users.access) across 7 modules: dashboard, projects, feasibility, partners (Partner Ledger), loans (Private Loans), investments, properties. Admin always full; /auth/me returns effective access
+- Enforcement: module_access_middleware maps API path prefixes → module and 403s {"detail":"no_access"} for non-admins whose explicit access list lacks it (legacy users without a list keep full access until admin restricts; new Google sign-ups default to dashboard+projects)
+- Admin page: per-user "Access" button opens inline toggle pills per module + Save (PUT /api/admin/users/{uid}/access; invalid module names filtered); nav (Layout) and routes (App.js Require guard) hide/redirect disallowed modules; data stays user-scoped so personal finances remain private per account
+- Verified: restricted test user 403 on partners/ledger/investments/properties/loans/feasibility + /partner/overview, 200 after grant (middleware re-reads DB per request — instant grant/revoke), nav shows only granted modules, direct-URL redirect to /, bogus module names dropped; test user cleaned up
+
+- Testing: iteration_15 — 12/12 backend pytest; fixed the one HIGH bug found: login + google-session responses now include effective access (sidebar no longer empty for non-admins until reload); verified /api/partners-list doesn't exist (no leak); fresh-login nav renders granted modules immediately without reload
+- Testing: iteration_16 follow-up verified via curl + Playwright (nav.test2 user, cleaned up)
+
 ## Backlog
 - P2: split server.py (1558 lines) into routers (auth/projects/report/ledger)
 - P1: Edit project (name/partners %) from UI; settle-up shortcut button per pair

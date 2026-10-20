@@ -147,6 +147,7 @@ MODULE_PATHS = [
     ("/api/ledger", "partners"),
     ("/api/partner-report", "partners"),
     ("/api/partner/overview", "partners"),
+    ("/api/partners-list", "partners"),
     ("/api/investments", "investments"),
     ("/api/shares", "investments"),
     ("/api/integrations/etoro", "investments"),
@@ -415,7 +416,9 @@ async def login(data: LoginIn, request: Request, response: Response):
     set_auth_cookies(response, str(user["_id"]), email)
     return {"id": str(user["_id"]), "email": email, "name": user.get("name", ""),
             "picture": user.get("picture", ""), "role": user.get("role", "user"),
-            "status": user.get("status", "approved")}
+            "status": user.get("status", "approved"),
+            "access": list(MODULES) if user.get("role") == "admin"
+                      else (user.get("access") if isinstance(user.get("access"), list) else list(MODULES))}
 
 
 @app.post("/api/auth/logout")
@@ -1879,7 +1882,9 @@ async def google_session(data: GoogleSessionIn, response: Response):
                         samesite="none", max_age=604800, path="/")
     return {"id": uid, "email": email, "name": user.get("name") or profile.get("name", ""),
             "picture": profile.get("picture", ""), "role": user.get("role", "user"),
-            "status": user.get("status", "pending")}
+            "status": user.get("status", "pending"),
+            "access": list(MODULES) if user.get("role") == "admin"
+                      else (user.get("access") if isinstance(user.get("access"), list) else list(MODULES))}
 
 
 # ---------------- admin ----------------

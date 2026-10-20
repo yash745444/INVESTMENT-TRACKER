@@ -1,0 +1,52 @@
+{
+  "summary": "Iteration 16 (per-user module access control) tested end-to-end. Backend: 12/12 pytest cases pass in /app/backend/tests/test_iteration16_access.py — restricted user with access=[dashboard,projects] gets 200 on /api/dashboard & /api/projects and 403 {detail:'no_access'} on /api/ledger, /api/partner/overview, /api/investments, /api/properties, /api/personal-loans, /api/feasibility; admin PUT /api/admin/users/{uid}/access grants partners+investments and both endpoints flip to 200 instantly WITHOUT re-login (DB re-read per request); revoke flips them back to 403; invalid module name 'bogus' silently filtered on PUT; empty access=[] blocks even /api/dashboard (403) but /api/auth/me still works and returns access:[]; admin /api/auth/me returns full MODULES list; legacy user doc with no 'access' field logs in and still gets full module access (403-free) + /auth/me returns all 7 modules — matches server.py get_current_user normalization at line 125-126. Frontend: admin Access UI verified — admin row shows NO 'Access' button (admin not in own-row toggle), non-admin rows have access-toggle-<uid> that expands access-row-<uid> with 7 pills access-<uid>-{dashboard,projects,feasibility,partners,loans,investments,properties}; clicking Save fires PUT, shows 'Access updated' toast, closes row, and pills persist across reload (verified by text-gold class). Enforcement in Require guard works: as restricted user with access=[dashboard,projects,partners,investments], direct visit to /partners LOADS; /properties and /feasibility REDIRECT to /. After revoke to [dashboard] only, /partners also redirects to /.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Layout sidebar/mobile nav after fresh login",
+        "issue": "After /api/auth/login succeeds, the sidebar renders EMPTY (zero nav items) for non-admin users because POST /api/auth/login's response payload does NOT include 'access' — AuthContext.login() calls setUser(r.data) with that payload, so user.access is undefined and navItems filter `(user?.access||[]).includes(n.mod)` matches nothing. A full page reload fixes it because AuthProvider's useEffect calls /api/auth/me which DOES include access. Reproduced: login as restricted user → sidebar blank + no mobile tabs; press F5 → sidebar correctly shows Dashboard, Projects, Partner Ledger, Investments. Admin unaffected (early-return admin branch doesn't need access list).",
+        "selector": "[data-testid^=\"nav-\"] inside Layout.jsx",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Fresh login → navigation",
+        "issue": "Non-admin user is stranded on an empty dashboard with no sidebar links immediately after login until they refresh. Nav sidebar is empty because login response omits 'access'.",
+        "affected_selectors": ["nav-dashboard", "nav-projects", "nav-partner-ledger", "nav-investments", "nav-mobile-*"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration16_access.py",
+    "/app/test_reports/pytest/iteration16.xml"
+  ],
+  "action_items": [
+    "In /app/backend/server.py @app.post('/api/auth/login') return payload, add 'access': user.get('access') if isinstance(user.get('access'), list) else list(MODULES) (and MODULES if role=='admin') so AuthContext.login() populates user.access immediately and the sidebar renders without a reload. Same fix likely needed in /api/auth/google/session response for consistency.",
+    "Cleanup: previous testing left 'access.test@example.com' (uid 6ad6c61172a34f47ff085a37, access=['dashboard','investments']) in db.users — main agent should delete via DELETE /api/admin/users/{uid} or mongo (prior iteration note said this was already deleted; it isn't)."
+  ],
+  "critical_code_review_comments": [
+    "Login response payload drift vs /auth/me: login returns {id,email,name,picture,role,status} but /auth/me adds 'access'. The frontend treats both as the same user object (AuthContext.login does setUser(r.data) and AuthProvider useEffect does the same from /me). Keep them in sync — missing fields silently break downstream UI (see nav-empty bug above).",
+    "server.py MODULE_PATHS uses startswith prefix matching — note that /api/loans maps to 'projects' (project loans) while /api/personal-loans maps to 'loans' (private loans). The ordering has /api/personal-loans listed first which is correct, but a developer adding /api/loan-anything-else could accidentally bind to 'projects'. Consider a stricter path match or explicit router-level dependency.",
+    "module_access_middleware re-reads the user doc from Mongo on every gated request to make grant/revoke instant — this is correct for the stated UX guarantee but doubles DB round-trips vs trusting the JWT. For high-traffic deployments add a short TTL in-memory cache keyed by uid.",
+    "Partner Ledger UI calls /api/ledger, /api/partner/overview, /api/partner-report/{name}, /api/partners-list — all four are mapped (ledger→partners, partner-report→partners, partner/overview→partners). /api/partners-list is NOT in MODULE_PATHS, so a restricted user could enumerate partner names via it. Add ('/api/partners-list','partners') to MODULE_PATHS. Note: grep confirms /api/partners-list exists at ~line 1200s and is called from frontend partner autocomplete.",
+    "server.py is now 2044 lines — split into modules (auth, admin, access, investments, etoro, dashboard, report) remains strongly recommended per prior iterations."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration16_access.py",
+    "/app/test_reports/pytest/iteration16.xml",
+    "/app/test_reports/iteration_15.json"
+  ],
+  "success_rate": {"backend": "100% (12/12)", "frontend": "~85% — Admin Access UI, Require guard redirects, data privacy, auth/me all work; the sidebar-empty-after-login bug blocks the natural restricted-user flow until a page reload"},
+  "test_credentials": "Admin: yash.sojitra34@gmail.com / Yash@2026. Ephemeral test users (hashed via server.hash_password, inserted via pymongo and deleted in teardown): test_access_iter16@example.com / TestPass@2026 and test_ui_iter16@example.com / UiTest@2026 and test_legacy_iter16@example.com / LegacyPass@2026 — all deleted post-run.",
+  "seed_data_creation": "Created & deleted three TEST users via pymongo directly (email lowercased because /api/auth/login lowercases the submitted email — original 'TEST_*' casing caused 401). No MAISON 7 or admin data modified. Reset db.login_attempts between runs to clear lockout state.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter16 access-control backend is solid (12/12 pytest green). The one bug is in AuthContext.login flow: POST /api/auth/login does NOT return 'access' in the response body, so the sidebar is empty for a non-admin after first login until the page is reloaded (/auth/me then populates access). Fix is a 1-line addition in server.py login(). After fixing, retest by logging in fresh as a restricted user and asserting Array.from(document.querySelectorAll('[data-testid^=\"nav-\"]')) is non-empty without reload. Also add /api/partners-list to MODULE_PATHS. Test file /app/backend/tests/test_iteration16_access.py is reusable regression — note it lowercases test emails and clears db.login_attempts in setup.",
+  "rca of the issue": "The sidebar-empty-after-login bug: /api/auth/login response payload lacks 'access' field (unlike /api/auth/me). Frontend AuthContext.login does setUser(r.data). Layout.jsx navItems filters by (user?.access||[]).includes(n.mod) — with access undefined → zero items. On page reload, AuthProvider's useEffect hits /api/auth/me which DOES return 'access' (added via get_current_user normalization line 123-126) → sidebar populates. Fix: in login() around line 416, change return to include 'access': list(MODULES) if role=='admin' else (user.get('access') if isinstance(user.get('access'), list) else list(MODULES))."
+}
