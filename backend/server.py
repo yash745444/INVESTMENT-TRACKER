@@ -120,10 +120,71 @@ async def get_current_user(request: Request):
         raise HTTPException(401, "Not authenticated")
     user["id"] = str(user.pop("_id"))
     user.pop("password_hash", None)
+    if user.get("role") == "admin":
+        user["access"] = list(MODULES)
+    elif not isinstance(user.get("access"), list):
+        user["access"] = list(MODULES)  # legacy account: full access until admin restricts
     if user.get("status", "approved") != "approved" and request.url.path not in (
             "/api/auth/me", "/api/auth/logout", "/api/auth/refresh"):
         raise HTTPException(403, "pending_approval")
     return user
+
+
+# ---------------- per-user module access control ----------------
+
+MODULES = ["dashboard", "projects", "feasibility", "partners", "loans", "investments", "properties"]
+DEFAULT_ACCESS = ["dashboard", "projects"]
+
+MODULE_PATHS = [
+    ("/api/personal-loans", "loans"),
+    ("/api/dashboard", "dashboard"),
+    ("/api/projects", "projects"),
+    ("/api/contributions", "projects"),
+    ("/api/costs", "projects"),
+    ("/api/batches", "projects"),
+    ("/api/loans", "projects"),
+    ("/api/feasibility", "feasibility"),
+    ("/api/ledger", "partners"),
+    ("/api/partner-report", "partners"),
+    ("/api/partner/overview", "partners"),
+    ("/api/investments", "investments"),
+    ("/api/shares", "investments"),
+    ("/api/integrations/etoro", "investments"),
+    ("/api/market", "investments"),
+    ("/api/properties", "properties"),
+]
+
+
+@app.middleware("http")
+async def module_access_middleware(request: Request, call_next):
+    from fastapi.responses import JSONResponse
+    path = request.url.path
+    mod = next((m for prefix, m in MODULE_PATHS if path.startswith(prefix)), None)
+    if mod:
+        token = request.cookies.get("access_token")
+        auth = request.headers.get("Authorization", "")
+        token = token or (auth[7:] if auth.startswith("Bearer ") else None)
+        user = None
+        if token:
+            try:
+                payload = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
+                if payload.get("type") == "access":
+                    user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+            except Exception:
+                user = None
+        if user is None:
+            st = request.cookies.get("session_token")
+            if st:
+                sess = await db.user_sessions.find_one({"session_token": st})
+                if sess:
+                    user = await db.users.find_one({"_id": ObjectId(sess["user_id"])})
+        # Only restrict users with an explicit access list; legacy users keep full
+        # access until the admin configures them. Unauthenticated requests fall
+        # through to the endpoint's own auth.
+        if user is not None and user.get("role") != "admin" and isinstance(user.get("access"), list):
+            if mod not in user["access"]:
+                return JSONResponse({"detail": "no_access"}, status_code=403)
+    return await call_next(request)
 
 
 # ---------------- FX rates ----------------
@@ -1801,6 +1862,7 @@ async def google_session(data: GoogleSessionIn, response: Response):
             "picture": profile.get("picture", ""), "google_id": profile.get("id", ""),
             "role": "admin" if is_admin else "user",
             "status": "approved" if is_admin else "pending",
+            "access": list(MODULES) if is_admin else list(DEFAULT_ACCESS),
             "created_at": now_utc().isoformat()})
         user = await db.users.find_one({"email": email})
     else:
@@ -1838,6 +1900,19 @@ async def admin_set_status(uid: str, data: StatusIn, user=Depends(require_admin)
     if not res.matched_count:
         raise HTTPException(404, "User not found")
     return {"ok": True, "status": data.status}
+
+
+class AccessIn(BaseModel):
+    access: List[str]
+
+
+@app.put("/api/admin/users/{uid}/access")
+async def admin_set_access(uid: str, data: AccessIn, user=Depends(require_admin)):
+    access = [m for m in data.access if m in MODULES]
+    res = await db.users.update_one({"_id": ObjectId(uid)}, {"$set": {"access": access}})
+    if not res.matched_count:
+        raise HTTPException(404, "User not found")
+    return {"ok": True, "access": access}
 
 
 @app.delete("/api/admin/users/{uid}")

@@ -84,6 +84,14 @@ function AuthCallback() {
   );
 }
 
+function Require({ mod, children }) {
+  const { user } = useAuth();
+  if (user && user.role !== "admin" && !(user.access || []).includes(mod)) {
+    return <Navigate to="/" replace />;
+  }
+  return children;
+}
+
 function AppRouter() {
   const location = useLocation();
   if (location.hash?.includes("session_id=")) {
@@ -94,14 +102,14 @@ function AppRouter() {
       <Route path="/login" element={<Login />} />
       <Route element={<Protected><Layout /></Protected>}>
         <Route path="/" element={<Dashboard />} />
-        <Route path="/projects" element={<Projects />} />
-        <Route path="/projects/:id" element={<ProjectDetail />} />
-        <Route path="/partners" element={<Partners />} />
-        <Route path="/loans" element={<PrivateLoans />} />
+        <Route path="/projects" element={<Require mod="projects"><Projects /></Require>} />
+        <Route path="/projects/:id" element={<Require mod="projects"><ProjectDetail /></Require>} />
+        <Route path="/partners" element={<Require mod="partners"><Partners /></Require>} />
+        <Route path="/loans" element={<Require mod="loans"><PrivateLoans /></Require>} />
         <Route path="/people" element={<People />} />
-        <Route path="/investments" element={<Investments />} />
-        <Route path="/properties" element={<Properties />} />
-        <Route path="/feasibility" element={<Feasibility />} />
+        <Route path="/investments" element={<Require mod="investments"><Investments /></Require>} />
+        <Route path="/properties" element={<Require mod="properties"><Properties /></Require>} />
+        <Route path="/feasibility" element={<Require mod="feasibility"><Feasibility /></Require>} />
         <Route path="/admin" element={<Admin />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

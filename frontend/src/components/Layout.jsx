@@ -7,15 +7,16 @@ import { Button } from "./ui/button";
 import { LayoutDashboard, HardHat, Users, TrendingUp, Building2, LogOut, Landmark, Calculator, ShieldCheck, HandCoins, Contact } from "lucide-react";
 
 function navItems(user) {
-  const items = [
-    { to: "/", label: "Dashboard", icon: LayoutDashboard },
-    { to: "/projects", label: "Projects", icon: HardHat },
-    { to: "/feasibility", label: "Feasibility", icon: Calculator },
-    { to: "/partners", label: "Partner Ledger", icon: Users },
-    { to: "/loans", label: "Private Loans", icon: HandCoins },
-    { to: "/investments", label: "Investments", icon: TrendingUp },
-    { to: "/properties", label: "Properties", icon: Building2 },
+  const all = [
+    { to: "/", label: "Dashboard", icon: LayoutDashboard, mod: "dashboard" },
+    { to: "/projects", label: "Projects", icon: HardHat, mod: "projects" },
+    { to: "/feasibility", label: "Feasibility", icon: Calculator, mod: "feasibility" },
+    { to: "/partners", label: "Partner Ledger", icon: Users, mod: "partners" },
+    { to: "/loans", label: "Private Loans", icon: HandCoins, mod: "loans" },
+    { to: "/investments", label: "Investments", icon: TrendingUp, mod: "investments" },
+    { to: "/properties", label: "Properties", icon: Building2, mod: "properties" },
   ];
+  const items = user?.role === "admin" ? all : all.filter((n) => (user?.access || []).includes(n.mod));
   if (user?.role === "admin") items.push({ to: "/people", label: "People", icon: Contact });
   if (user?.role === "admin") items.push({ to: "/admin", label: "Admin", icon: ShieldCheck });
   return items;

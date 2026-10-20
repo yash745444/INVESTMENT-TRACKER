@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api, apiError } from "../lib/api";
@@ -6,13 +6,21 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { toast } from "sonner";
-import { Check, X, Trash2 } from "lucide-react";
+import { Check, X, Trash2, SlidersHorizontal } from "lucide-react";
+
+const ACCESS_MODULES = [
+  ["dashboard", "Dashboard"], ["projects", "Projects"], ["feasibility", "Feasibility"],
+  ["partners", "Partner Ledger"], ["loans", "Private Loans"], ["investments", "Investments"],
+  ["properties", "Properties"],
+];
 
 export default function Admin() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [users, setUsers] = useState(null);
   const [linkNames, setLinkNames] = useState({});
+  const [accOpen, setAccOpen] = useState(null);
+  const [accEdit, setAccEdit] = useState({});
 
   const load = () => api.get("/admin/users").then((r) => setUsers(r.data)).catch((e) => {
     if (e?.response?.status === 403) navigate("/");
@@ -63,7 +71,8 @@ export default function Admin() {
                 </tr></thead>
                 <tbody>
                   {users.map((u) => (
-                    <tr key={u.id} className="border-b border-border/50" data-testid={`user-row-${u.id}`}>
+                    <Fragment key={u.id}>
+                    <tr className="border-b border-border/50" data-testid={`user-row-${u.id}`}>
                       <td className="py-2.5 pr-4">
                         <div className="flex items-center gap-2">
                           {u.picture && <img src={u.picture} alt="" className="h-6 w-6 rounded-full" referrerPolicy="no-referrer" />}
@@ -100,6 +109,15 @@ export default function Admin() {
                               <X className="h-3.5 w-3.5 text-negative" />
                             </Button>
                           )}
+                          {u.id !== user?.id && u.role !== "admin" && (
+                            <Button size="sm" variant="outline" data-testid={`access-toggle-${u.id}`}
+                              onClick={() => {
+                                setAccOpen(accOpen === u.id ? null : u.id);
+                                setAccEdit({ ...accEdit, [u.id]: Array.isArray(u.access) ? [...u.access] : ACCESS_MODULES.map((m) => m[0]) });
+                              }}>
+                              <SlidersHorizontal className="h-3.5 w-3.5 mr-1" /> Access
+                            </Button>
+                          )}
                           {u.id !== user?.id && (
                             <Button size="sm" variant="ghost" data-testid={`delete-user-${u.id}`}
                               onClick={() => remove(u.id, u.email)}>
@@ -109,6 +127,36 @@ export default function Admin() {
                         </div>
                       </td>
                     </tr>
+                    {accOpen === u.id && (
+                      <tr data-testid={`access-row-${u.id}`}>
+                        <td colSpan={6} className="py-3">
+                          <div className="flex items-center gap-2 flex-wrap rounded-lg border border-border p-3">
+                            <span className="label-overline mr-1">Can access:</span>
+                            {ACCESS_MODULES.map(([mod, label]) => {
+                              const on = (accEdit[u.id] || []).includes(mod);
+                              return (
+                                <button key={mod} type="button" data-testid={`access-${u.id}-${mod}`}
+                                  onClick={() => setAccEdit({ ...accEdit, [u.id]: on ? accEdit[u.id].filter((x) => x !== mod) : [...(accEdit[u.id] || []), mod] })}
+                                  className={`text-xs font-mono px-2.5 py-1 rounded-full border transition-colors ${on ? "text-gold" : "border-border text-muted-foreground"}`}
+                                  style={on ? { borderColor: "hsl(var(--gold))" } : {}}>
+                                  {label}
+                                </button>
+                              );
+                            })}
+                            <Button size="sm" data-testid={`access-save-${u.id}`}
+                              onClick={async () => {
+                                try {
+                                  await api.put(`/admin/users/${u.id}/access`, { access: accEdit[u.id] || [] });
+                                  toast.success("Access updated");
+                                  setAccOpen(null);
+                                  load();
+                                } catch (e) { toast.error(apiError(e)); }
+                              }}>Save</Button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
