@@ -1567,6 +1567,13 @@ async def unlock_shares(data: PinIn, response: Response, request: Request, user=
     return {"ok": True}
 
 
+@app.post("/api/shares/lock")
+async def lock_shares(response: Response):
+    response.set_cookie("shares_unlock", "", httponly=True, secure=True,
+                        samesite="none", max_age=0, path="/")
+    return {"ok": True}
+
+
 def shares_visible(request: Request) -> bool:
     token = request.cookies.get("shares_unlock")
     if not token:
@@ -1698,7 +1705,8 @@ async def _dashboard_data(request: Request, user: dict) -> dict:
                   "project_loans": round(my_loan_share_total, 2),
                   "personal_loans": round(pl_total, 2), "total": round(debts, 2)},
         "investments": {"total": round(inv_total, 2), "by_type": inv_by_type,
-                        "shares_total": round(shares_total, 2), "shares_count": shares_count},
+                        "shares_total": round(shares_total, 2), "shares_count": shares_count,
+                        "shares_visible": visible},
         "properties": {"value": round(prop_value_mine, 2), "debt": round(prop_debt_mine, 2),
                        "equity": round(prop_value_mine - prop_debt_mine, 2), "monthly_rent": round(prop_rent, 2)},
         "projects": {"list": projects, "my_contributions": round(my_contributions, 2),

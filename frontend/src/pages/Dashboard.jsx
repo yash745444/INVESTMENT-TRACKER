@@ -8,13 +8,19 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
 import { TrendingUp, Building2, HardHat, Users, Wallet, Lock, FileText } from "lucide-react";
 import { PinUnlock } from "../components/PinUnlock";
-import { isSharesUnlocked, setSharesUnlocked } from "../lib/sharesLock";
+import { isSharesUnlocked, setSharesUnlocked, clearSharesUnlocked } from "../lib/sharesLock";
 
 const COLORS = ["#D97706", "#059669", "#2563EB", "#8B5CF6"];
 
 export default function Dashboard() {
   const [data, setData] = useState(null);
   const [unlocked, setUnlocked] = useState(isSharesUnlocked());
+  const lockShares = async () => {
+    try { await api.post("/shares/lock"); } catch { /* best-effort cookie clear */ }
+    clearSharesUnlocked();
+    setUnlocked(false);
+    load();
+  };
   const [pinOpen, setPinOpen] = useState(false);
   const [withDebts, setWithDebts] = useState(true);
   const [reportOpen, setReportOpen] = useState(false);
@@ -24,6 +30,7 @@ export default function Dashboard() {
   const load = () => api.get("/dashboard").then((r) => {
     setData(r.data);
     if ((r.data.investments.shares_total || 0) > 0) { setSharesUnlocked(); setUnlocked(true); }
+    if (r.data.investments.shares_visible === false) { clearSharesUnlocked(); setUnlocked(false); }
   }).catch(() => {});
   useEffect(() => { load(); }, []);
 
@@ -98,6 +105,12 @@ export default function Dashboard() {
             <button data-testid="unlock-shares-button" onClick={() => setPinOpen(true)}
               className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground border border-border rounded-full px-3 py-1.5 hover:border-gold transition-colors">
               <Lock className="h-3 w-3" /> Reveal shares
+            </button>
+          )}
+          {unlocked && sharesCount > 0 && (
+            <button data-testid="lock-shares-button" onClick={lockShares}
+              className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground border border-border rounded-full px-3 py-1.5 hover:border-gold transition-colors">
+              <Lock className="h-3 w-3" /> Lock shares
             </button>
           )}
         </div>

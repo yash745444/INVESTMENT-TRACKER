@@ -135,6 +135,13 @@ export default function Investments() {
     setSyncing(false);
   };
 
+  const lockShares = async () => {
+    try { await api.post("/shares/lock"); } catch { /* best-effort cookie clear */ }
+    sessionStorage.removeItem("shares_unlocked");
+    setUnlocked(false);
+    load();
+  };
+
   return (
     <div className="space-y-6" data-testid="investments-page">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -151,6 +158,11 @@ export default function Investments() {
           {!unlocked && sharesCount > 0 && (
             <Button variant="outline" data-testid="unlock-shares-inv-button" onClick={() => setPinOpen(true)}>
               <Lock className="h-4 w-4 mr-1.5" /> Reveal Shares
+            </Button>
+          )}
+          {unlocked && sharesCount > 0 && (
+            <Button variant="outline" data-testid="lock-shares-inv-button" onClick={lockShares}>
+              <Lock className="h-4 w-4 mr-1.5" /> Lock Shares
             </Button>
           )}
           {unlocked && sharesCount > 0 && (

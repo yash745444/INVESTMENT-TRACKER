@@ -144,6 +144,11 @@ eToro has NO public API for portfolio sync. Shares holdings are entered once (sy
 - FIX: Investments load() now detects server-redacted rows (i.redacted) and forces the locked UI — "••••" totals, "N holdings hidden — enter passcode to view", Unlock Shares button always reachable; redacted rows never render values
 - Verified via Playwright: locked state masks correctly, PIN 2468 unlock restores Shares $23,915 + Crypto $982
 
+## Implemented (2026-10-20, iteration 15 — lock/unlock button)
+- POST /api/shares/lock expires the httpOnly shares_unlock cookie (JWT, 12h) server-side
+- Investments: "Lock Shares" button (lock-shares-inv-button) appears when unlocked — clears sessionStorage + cookie, reloads into masked state; Dashboard: "Lock shares" pill (lock-shares-button) next to net-worth controls; dashboard auto-syncs locked UI when server reports redaction
+- Verified via Playwright: Reveal → PIN → Lock Shares visible → click → masked "••••" + Reveal returns
+
 ## Backlog
 - P2: split server.py (1558 lines) into routers (auth/projects/report/ledger)
 - P1: Edit project (name/partners %) from UI; settle-up shortcut button per pair
