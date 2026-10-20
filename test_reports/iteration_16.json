@@ -1,0 +1,29 @@
+{
+  "summary": "Iteration 17 (link properties & projects to users via partner email) tested end-to-end. Backend 16/16 pytest green in /app/backend/tests/test_iteration17_linking.py. Frontend verified via Playwright for both admin (Add Property dialog partner rows now have name+email+pct inputs, people datalist autofills email when a known name is typed) and partner user (Shared badge rendered, 'My equity (40%)' = $160,000, no edit/delete buttons, no access to PUT/DELETE). All review-request items pass: (1) property partner email persisted and lowercased server-side at POST /api/properties and PUT /api/properties/{id}; (2) GET /api/properties for partner returns the shared property with shared:true; partner PUT/DELETE return 404 (owner-only via user_id query); (3) GET /api/dashboard for partner returns properties.equity reflecting the 40% share (160000 of 400000) and projects.list contains the linked project with shared:true, my_percentage=40, my_equity=400000 (40% of 1M land_cost); (4) partner can add own contribution under their own partner name (200) but 403 when posting under another partner name; project PUT/DELETE blocked with 403 for non-owner; (5) unlinking (admin PUT with partner email removed) immediately removes the property from the partner's GET /api/properties list; (6) non-admin GET /api/people returns 403 — datalist silently empty for them which is correct. Owner regression unchanged: admin dashboard 200, admin sees property with shared:false, MAISON 7 untouched (not modified).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Add Property dialog", "issues": ["Accessibility warning in console: 'Missing Description or aria-describedby for DialogContent'. Non-blocking but recommend adding DialogDescription to Add/Edit Property dialog for a11y compliance."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iteration17_linking.py", "/app/test_reports/pytest/iteration17.xml"],
+  "action_items": [
+    "Optional: add DialogDescription to Add Property dialog to clear accessibility console warning."
+  ],
+  "critical_code_review_comments": [
+    "server.py list_properties and _dashboard_data both filter by {$or: [user_id, partners.email]} — this will match the SAME doc twice if an owner also happens to be in their own partners list by email. For current data this is fine (user_id==owner, so the OR branch 'partners.email' only fires when NOT owner) but relying on this is subtle; prefer an explicit elemMatch or defensive de-dup by _id in Python.",
+    "In list_projects/_dashboard_data the 'my_partner' resolution falls back to name match if email missing — case-sensitive on name but case-insensitive on email. Standardize (lowercase both) to avoid confusion when a partner's name on project differs by casing from user.name.",
+    "Property POST/PUT lowercases partner emails but does NOT validate email format or dedupe duplicate emails in partners array — a typo like 'yash.sojitra34@gmai.com' would silently never link. Consider pydantic EmailStr for partner.email.",
+    "server.py file size is now 2053 lines — split recommendation from prior iterations still outstanding."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration17_linking.py", "/app/test_reports/pytest/iteration17.xml"],
+  "success_rate": {"backend": "100% (16/16)", "frontend": "100% on tested flows (partner view + admin autofill)"},
+  "test_credentials": "Admin: yash.sojitra34@gmail.com / Yash@2026. Ephemeral test users (created via pymongo + server.hash_password, deleted in teardown): test_link_iter17@example.com / LinkTest@2026 and test_ui_iter17@example.com / UiPass@2026 — all removed post-run along with TEST LINK PROP ITER17 / TEST LINK PROP UI17 / TEST LINK PROJ ITER17.",
+  "seed_data_creation": "Fixtures created & deleted: 1 test user with access=[dashboard,projects,properties], 1 linked property (400k AUD, 40% to test user), 1 linked project (1M land_cost, 40% to test user), plus 1 UI test user and 1 UI test property. All cleaned via pymongo + DELETE API. MAISON 7 and real admin data NOT touched.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 17 linking logic is solid both API and UI. Regression suite at /app/backend/tests/test_iteration17_linking.py (16 tests) exercises property+project linking, equity share math, read-only guards, unlink flow, and people RBAC. Run with: REACT_APP_BACKEND_URL=<prod_url> pytest backend/tests/test_iteration17_linking.py -v -o addopts=''. The pytest.ini uses xdist by default which caused collection errors on this new file — override with -o addopts=''. Note dashboard projects live under data['projects']['list'] (not top-level). Partner cannot PUT/DELETE property → returns 404 (not 403) because the owner-check is embedded in the Mongo query filter; project PUT/DELETE return 403 because that path pre-fetches then compares user_id. If main agent plans to unify these, be aware tests assert the current status codes.",
+  "rca of the issue": "No bug observed. All five review-request features working as implemented."
+}

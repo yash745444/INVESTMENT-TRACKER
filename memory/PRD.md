@@ -158,6 +158,12 @@ eToro has NO public API for portfolio sync. Shares holdings are entered once (sy
 - Testing: iteration_15 — 12/12 backend pytest; fixed the one HIGH bug found: login + google-session responses now include effective access (sidebar no longer empty for non-admins until reload); verified /api/partners-list doesn't exist (no leak); fresh-login nav renders granted modules immediately without reload
 - Testing: iteration_16 follow-up verified via curl + Playwright (nav.test2 user, cleaned up)
 
+## Implemented (2026-10-20, iteration 17 — property/project account linking)
+- Properties: partner rows in Add/Edit Property now carry an account email (auto-filled when the name matches a person in People) — linked partners see the property in their account as read-only "Shared" with their "My equity (%)" line; dashboard property equity/rent/debt counts their share
+- Projects: dashboard equity loop now includes email-linked projects (was owned-only) — linked partners see the project with their % equity (= share × (project cost − loans drawn)), marked shared; contributions matched by their partner name
+- Owner-only enforcement verified: linked partners cannot edit/delete shared properties (404)
+- Verified end-to-end: 40% partner sees property equity $160k and project equity $400k on their dashboard; net worth reflects both
+
 ## Backlog
 - P2: split server.py (1558 lines) into routers (auth/projects/report/ledger)
 - P1: Edit project (name/partners %) from UI; settle-up shortcut button per pair
