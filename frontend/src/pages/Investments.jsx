@@ -40,6 +40,7 @@ export default function Investments() {
   const load = async () => {
     const [i, r] = await Promise.all([api.get("/investments"), api.get("/rates")]);
     setItems(i.data); setRates(r.data.rates);
+    if (i.data.some((x) => x.redacted)) setUnlocked(false); // server redacted → show lock UI
   };
   useEffect(() => { load(); }, []);
 
@@ -313,7 +314,8 @@ export default function Investments() {
                               )}
                             </p>
                             <p className="font-mono text-xs text-muted-foreground mt-0.5">
-                              {(i.type === "shares" || i.type === "crypto") && i.symbol
+                              {i.redacted ? "••••"
+                                : (i.type === "shares" || i.type === "crypto") && i.symbol
                                 ? (i.source === "etoro"
                                   ? `${i.symbol} · invested ${fmt2(i.amount, worthCur(i))} · P&L ${(i.pnl ?? 0) >= 0 ? "+" : ""}${fmt2(i.pnl ?? 0, worthCur(i))} (${i.amount ? (((i.pnl ?? 0) / i.amount) * 100).toFixed(1) : "0.0"}%) = ${fmt2(worthOf(i), worthCur(i))}${worthCur(i) !== "AUD" ? ` ≈ ${fmt(toAud(worthOf(i), worthCur(i)))}` : ""}`
                                   : `${i.symbol} · ${Number(i.quantity).toFixed(4).replace(/\.?0+$/, "")} × ${fmt2(i.current_price, i.price_currency || i.currency)} = ${fmt2(worthOf(i), worthCur(i))}${worthCur(i) !== "AUD" ? ` ≈ ${fmt(toAud(worthOf(i), worthCur(i)))}` : ""}${i.buy_price ? ` · P&L ${(((i.current_price - i.buy_price) / i.buy_price) * 100).toFixed(1)}%` : ""}`)

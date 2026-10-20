@@ -139,6 +139,11 @@ eToro has NO public API for portfolio sync. Shares holdings are entered once (sy
 - Row display for eToro entries: "SYMBOL · invested $X · P&L ±$Y (±%) = worth ≈ AUD"
 - Verified live: 9 positions, total $17,319 USD ≈ $24,812 AUD @0.698 — matches user's eToro app (~$24,776; drift = live prices/FX)
 
+## Bug fix (2026-10-20, iteration 14b — PIN-lock zero display)
+- BUG: after the 12h shares-unlock cookie expired server-side but was still present client-side, the Investments page showed redacted rows as "Hidden holding $0.00" with $0 group totals and NO unlock button (frontend trusted the cookie; server redacted) — looked like data loss
+- FIX: Investments load() now detects server-redacted rows (i.redacted) and forces the locked UI — "••••" totals, "N holdings hidden — enter passcode to view", Unlock Shares button always reachable; redacted rows never render values
+- Verified via Playwright: locked state masks correctly, PIN 2468 unlock restores Shares $23,915 + Crypto $982
+
 ## Backlog
 - P2: split server.py (1558 lines) into routers (auth/projects/report/ledger)
 - P1: Edit project (name/partners %) from UI; settle-up shortcut button per pair
